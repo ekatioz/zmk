@@ -12,6 +12,8 @@ Only listens on 127.0.0.1 and only accepts saves from the page it serves itself.
 import argparse
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -66,7 +68,8 @@ class Handler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def log_message(self, fmt, *args):
-        if "/api/" in (args[0] if args else ""):
+        # args[0] is not always a string (log_error passes an HTTPStatus)
+        if "/api/" in str(args[0] if args else ""):
             sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
     # --- routes ------------------------------------------------------------
@@ -77,6 +80,10 @@ class Handler(SimpleHTTPRequestHandler):
             if not LAYOUT.exists():
                 return self._json(404, {"error": "no layout.json yet"})
             return self._json(200, json.loads(LAYOUT.read_text(encoding="utf-8")))
+        if self.path == "/favicon.ico":
+            self.send_response(204)  # no icon, and no 404 in the log
+            self.end_headers()
+            return
         if self.path == "/" or self.path.startswith("/?"):
             self.path = "/index.html"
         return super().do_GET()
@@ -113,6 +120,25 @@ class Handler(SimpleHTTPRequestHandler):
         self._json(200, {"ok": True, "written": ["layout.json", *sorted(files)]})
 
 
+def open_browser(url: str) -> None:
+    # The browser inherits our terminal, so its own log noise (e.g. Chromium zygote errors)
+    # would end up in the server output. Start it detached from stdout/stderr where we can.
+    opener = shutil.which("xdg-open")
+    if opener:
+        try:
+            subprocess.Popen(
+                [opener, url],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            return
+        except OSError:
+            pass
+    webbrowser.open(url)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--port", type=int, default=8765)
@@ -123,7 +149,7 @@ def main() -> None:
     url = f"http://127.0.0.1:{args.port}/"
     print(f"display designer: {url}   (Ctrl+C to stop)")
     if not args.no_open:
-        threading.Timer(0.4, lambda: webbrowser.open(url)).start()
+        threading.Timer(0.4, lambda: open_browser(url)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

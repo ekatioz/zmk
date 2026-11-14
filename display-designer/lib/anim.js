@@ -1,7 +1,7 @@
 // Procedural animation generators. Each one returns an array of 1-bit frames (w x h) that the
 // firmware plays back as a plain flip-book - there is no animation code on the keyboard.
 
-import { FB } from "./render.js";
+import { FB, drawText } from "./render.js";
 
 export function fbToBitmap(fb) {
   const stride = (fb.w + 7) >> 3;
@@ -145,14 +145,182 @@ export const GENERATORS = {
           const y0 = Math.floor(rand() * h);
           const speed = 1 + (k % 3);
           const y = (y0 + i * speed * Math.max(1, Math.floor(h / 24))) % h;
+          // Every star is a plus (3 px): single pixels are barely visible on the panel.
           fb.set(x, y, 1);
-          if (k % 5 === 0) {
+          fb.set(x - 1, y, 1);
+          fb.set(x + 1, y, 1);
+          fb.set(x, y - 1, 1);
+          fb.set(x, y + 1, 1);
+          if (k % 4 === 0) {
+            // a few bigger ones
+            fb.set(x - 2, y, 1);
+            fb.set(x + 2, y, 1);
+            fb.set(x, y - 2, 1);
+            fb.set(x, y + 2, 1);
+          }
+        }
+      }),
+  },
+  matrix: {
+    label: "Matrix (Zeichenregen)",
+    frames: 24,
+    fps: 4,
+    make: (w, h, n) =>
+      frames(n, w, h, (fb, i) => {
+        // Columns of 8x8 characters fall one cell per frame; n cells are one full loop.
+        const CH = "0123456789ABCDEFGHKMNRSXZ@#$%&*+=<>?/\\|";
+        const cols = Math.max(1, Math.floor(w / 8));
+        const x0 = (w - cols * 8) >> 1;
+        const rows = Math.ceil(h / 8);
+        const P = Math.max(n, 2);
+        for (let c = 0; c < cols; c++) {
+          const rand = rng(777 + c * 31);
+          const speed = 1 + Math.floor(rand() * 2); // 1 or 2 cells per frame
+          const trail = 4 + Math.floor(rand() * 5);
+          const off = Math.floor(rand() * P);
+          const head = (off + speed * i) % P;
+          for (let r = 0; r < rows; r++) {
+            const age = (((head - r) % P) + P) % P; // 0 = head
+            if (age >= trail) continue;
+            const flick = (r * 7 + c * 13 + i) % 5 === 0;
+            const g = rng(c * 1009 + r * 131 + (flick ? i : 0) + 5);
+            const ch = CH[Math.floor(g() * CH.length)];
+            const x = x0 + c * 8;
+            const y = r * 8;
+            if (age === 0) {
+              fb.rect(x, y, 8, 8, 1);
+              drawText(fb, x, y, ch, 1, 0);
+            } else if (age < trail - 2) {
+              drawText(fb, x, y, ch, 1, 1);
+            } else {
+              // fading tail: draw only every other pixel
+              const t = new FB(8, 8);
+              drawText(t, 0, 0, ch, 1, 1);
+              for (let yy = 0; yy < 8; yy++)
+                for (let xx = 0; xx < 8; xx++)
+                  if (t.px[yy * 8 + xx] && (xx + yy) % 2 === 0)
+                    fb.set(x + xx, y + yy, 1);
+            }
+          }
+        }
+      }),
+  },
+  dna: {
+    label: "DNA-Helix",
+    frames: 16,
+    fps: 4,
+    make: (w, h, n) =>
+      frames(n, w, h, (fb, i, t) => {
+        const A = Math.max(3, Math.floor(w / 2) - 5);
+        const cx = w >> 1;
+        let p1 = null;
+        let p2 = null;
+        for (let y = 0; y < h; y++) {
+          const ph = TAU * (y / 32 - t);
+          const a = cx + r(A * Math.sin(ph));
+          const b = cx - r(A * Math.sin(ph));
+          if (p1) {
+            fb.line(p1[0], y - 1, a, y, 1);
+            fb.line(p2[0], y - 1, b, y, 1);
+          }
+          p1 = [a];
+          p2 = [b];
+          if (y % 6 === 0) {
+            for (let x = Math.min(a, b); x <= Math.max(a, b); x += 2)
+              fb.set(x, y, 1);
+            // the strand in front is drawn thicker
+            fb.set(Math.cos(ph) > 0 ? a : b, y, 1);
+            fb.rect((Math.cos(ph) > 0 ? a : b) - 1, y - 1, 3, 3, 1);
+          }
+        }
+      }),
+  },
+  warp: {
+    label: "Warp (Sternenflug)",
+    frames: 12,
+    fps: 4,
+    make: (w, h, n) =>
+      frames(n, w, h, (fb, i, t) => {
+        const rand = rng(4242);
+        const cx = w / 2;
+        const cy = h / 2;
+        const R = Math.hypot(cx, cy);
+        const count = Math.max(8, Math.floor((w * h) / 200));
+        for (let k = 0; k < count; k++) {
+          const ang = rand() * TAU;
+          const u = (rand() + t) % 1;
+          const rr = u * u * R;
+          const x = r(cx + Math.cos(ang) * rr);
+          const y = r(cy + Math.sin(ang) * rr);
+          const tail = r(u * 5);
+          if (tail > 0)
+            fb.line(
+              x,
+              y,
+              r(cx + Math.cos(ang) * (rr - tail)),
+              r(cy + Math.sin(ang) * (rr - tail)),
+              1,
+            );
+          if (u > 0.5) fb.rect(x, y, 2, 2, 1);
+          else fb.set(x, y, 1);
+        }
+      }),
+  },
+  snow: {
+    label: "Schnee",
+    frames: 16,
+    fps: 4,
+    make: (w, h, n) =>
+      frames(n, w, h, (fb, i, t) => {
+        const rand = rng(31337);
+        const count = Math.max(8, Math.floor((w * h) / 120));
+        for (let k = 0; k < count; k++) {
+          const x0 = rand() * w;
+          const y0 = rand() * h;
+          const fall = 1 + Math.floor(rand() * 3); // loops per cycle
+          const swayPh = rand() * TAU;
+          const big = rand() < 0.35;
+          const y = (Math.floor(y0) + Math.floor((fall * h * i) / n)) % h;
+          const x = r(x0 + 2 * Math.sin(swayPh + TAU * t * fall));
+          fb.set(x, y, 1);
+          if (big) {
             fb.set(x - 1, y, 1);
             fb.set(x + 1, y, 1);
             fb.set(x, y - 1, 1);
             fb.set(x, y + 1, 1);
           }
         }
+      }),
+  },
+  orbit: {
+    label: "Atom (Elektronen)",
+    frames: 12,
+    fps: 4,
+    make: (w, h, n) =>
+      frames(n, w, h, (fb, i, t) => {
+        const cx = w >> 1;
+        const cy = h >> 1;
+        const R = Math.floor(Math.min(w, h) / 2) - 3;
+        const a = R;
+        const b = Math.max(3, r(R / 3));
+        for (let k = 0; k < 3; k++) {
+          const tilt = (k * Math.PI) / 3;
+          const ct = Math.cos(tilt);
+          const st = Math.sin(tilt);
+          const pt = (ang) => [
+            cx + r(a * Math.cos(ang) * ct - b * Math.sin(ang) * st),
+            cy + r(a * Math.cos(ang) * st + b * Math.sin(ang) * ct),
+          ];
+          let prev = pt(0);
+          for (let s = 1; s <= 48; s++) {
+            const q = pt((s / 48) * TAU);
+            if (s % 2) fb.line(prev[0], prev[1], q[0], q[1], 1);
+            prev = q;
+          }
+          const e = pt((t + k / 3) * TAU);
+          fb.circle(e[0], e[1], 2, 1, true, false);
+        }
+        fb.circle(cx, cy, 3, 1, true, false);
       }),
   },
   ecg: {

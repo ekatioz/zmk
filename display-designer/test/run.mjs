@@ -53,6 +53,34 @@ const designs = {
       },
     ),
   },
+  central_signal: {
+    side: "central",
+    cfg: side(
+      { count: 2, height: 46 },
+      { count: 4, height: 30 },
+      {
+        T1: { type: "connection", style: 2 },
+        T2: { type: "connection", style: 3, source: "peer" },
+        C: { type: "connection", style: 3, scale: 2 },
+        B1: { type: "connection", style: 0, source: "peer" },
+        B2: { type: "connection", style: 1, source: "peer" },
+        B3: { type: "connection", style: 2, invert: true, align: "left" },
+        B4: { type: "connection", style: 1 },
+      },
+    ),
+  },
+  periph_signal: {
+    side: "peripheral",
+    cfg: side(
+      { count: 2, height: 46 },
+      { count: 0, height: 0 },
+      {
+        T1: { type: "connection", style: 2 },
+        T2: { type: "connection", style: 3 },
+        C: { type: "connection", style: 3, scale: 1, align: "right" },
+      },
+    ),
+  },
   central_big: {
     side: "central",
     cfg: side(
@@ -141,6 +169,8 @@ const states = [
     profileConnected: false,
     profileBonded: true,
     linkConnected: false,
+    rssiLink: 0,
+    rssiHost: 0,
     layerIndex: 4,
     layerLabel: "",
     wpm: mkWpm((i) => (i * 37) % 120),
@@ -153,6 +183,8 @@ const states = [
     profile: 1,
     profileConnected: false,
     profileBonded: false,
+    rssiLink: -75,
+    rssiHost: -88,
     layerIndex: 2,
     layerLabel: "SYMBOLS_AND_NUMBERS_LAYER",
     wpm: mkWpm((i) => (i < 12 ? 20 + i * 15 : 200 - i * 4)),
@@ -161,6 +193,8 @@ const states = [
     ...defaultState(),
     battery: 0,
     peerBattery: 3,
+    rssiLink: -95,
+    rssiHost: -62,
     layerIndex: 10,
     layerLabel: "NAV",
     wpm: mkWpm((i) => (i === WPM_HIST - 1 ? 188 : 0)),
@@ -177,7 +211,8 @@ function stateC(st) {
     `{.battery = ${st.battery}, .charging = ${st.charging}, .peer_battery = ${st.peerBattery}, ` +
     `.transport = ${st.transport}, .profile = ${st.profile}, ` +
     `.profile_connected = ${st.profileConnected}, .profile_bonded = ${st.profileBonded}, ` +
-    `.link_connected = ${st.linkConnected}, .layer_index = ${st.layerIndex}, ` +
+    `.link_connected = ${st.linkConnected}, .rssi_link = ${st.rssiLink}, ` +
+    `.rssi_host = ${st.rssiHost}, .layer_index = ${st.layerIndex}, ` +
     `.layer_label = ${cString(st.layerLabel)}, .wpm = {${st.wpm.join(", ")}}}`
   );
 }

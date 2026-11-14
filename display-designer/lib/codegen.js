@@ -135,6 +135,15 @@ export function genLayout(sideName, design) {
       `.frame_div = ${frameDiv}, .text = ${textRef}, .bitmaps = ${bitmapsRef}}, /* ${slot.id} */\n`;
   });
 
+  const rssi = slots.some((slot) => {
+    const cfg = side.slots[slot.id];
+    return (
+      cfg?.type === "connection" &&
+      ((cfg.style | 0) >= 2 ||
+        (sideName === "central" && cfg.source === "peer"))
+    );
+  });
+
   let out = HEADER;
   out += '#include "../dd_render.h"\n\n';
   out += data;
@@ -144,6 +153,7 @@ export function genLayout(sideName, design) {
   out += `    .invert = ${design.invert ? "true" : "false"},\n`;
   out += `    .slot_count = ${slots.length},\n`;
   out += `    .anim_tick_ms = ${timing.tickMs},\n`;
+  out += `    .rssi = ${rssi ? "true" : "false"},\n`;
   out += `    .slots = slots,\n};\n`;
   return out;
 }

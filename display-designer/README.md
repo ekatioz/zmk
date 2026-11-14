@@ -16,12 +16,12 @@ build as usual:
 ./build-lily58.sh -p
 ```
 
-## Widgets (phase 1)
+## Widgets
 
 | Widget     | Halves | Shows                                                                                                   |
 | ---------- | ------ | ------------------------------------------------------------------------------------------------------- |
 | Batterie   | both   | battery of this half; on the left half also of the other half (fetched over the split link)             |
-| Verbindung | both   | USB / Bluetooth state (left), link to the left half (right)                                             |
+| Verbindung | both   | USB / Bluetooth state (left), link to the left half (right); optionally signal bars / dBm (see below)   |
 | BT-Profil  | left   | the active Bluetooth profile 1–5 (filled = connected, dashed = bonded but disconnected, ring = pairing) |
 | Layer      | left   | active layer name and/or number                                                                         |
 | WPM        | left   | typing speed as number and/or graph                                                                     |
@@ -31,6 +31,15 @@ build as usual:
 Widgets that need keyboard state only the central half has are not offered on the right half.
 Animations are plain frame sequences; the keyboard only plays them back (2 to 0.5 frames/s) and
 pauses them while idle (`CONFIG_DISPLAY_DESIGNER_ANIM_ONLY_WHEN_ACTIVE`).
+
+### Signal strength
+
+The connection widget can show 4 signal bars, or bars plus dBm. On the left half it can describe the
+link to the host (`Host`) or to the other half (`Andere Hälfte`); on the right half it is the link to
+the left half. The value is the RSSI of the last packet on the link, read through the HCI Read RSSI
+command (`CONFIG_BT_CTLR_CONN_RSSI`, selected by the module) every 2 s while the keyboard is in use. Bars: >= -60 dBm 4, >= -70 dBm 3, >= -80 dBm 2, weaker 1, unknown 0 (a
+disconnected link shows empty bars). With USB output there is no radio link to the host, so the USB
+symbol is shown instead. The polling only runs if a design uses it.
 
 ## How it fits together
 
@@ -63,6 +72,5 @@ between the two needs a pristine build (`-p`).
 
 ## Not done yet
 
-- Phase 2: connection quality (RSSI) widget.
 - Phase 3: clock and PC volume, which need a helper program on the PC.
 - Not tested on hardware yet: only the firmware build and the renderer comparison have run.

@@ -392,6 +392,21 @@ function slotSection() {
       );
       break;
     case "connection":
+      if (sideId === "central") {
+        sec.append(
+          row(
+            "Quelle",
+            selectEl(
+              [
+                ["self", "Host (PC / USB)"],
+                ["peer", "Andere Hälfte"],
+              ],
+              cfg.source || "self",
+              (v) => set({ source: v }),
+            ),
+          ),
+        );
+      }
       sec.append(
         row(
           "Darstellung",
@@ -399,19 +414,23 @@ function slotSection() {
             [
               [0, "Nur Symbol"],
               [1, "Symbol + Text"],
+              [2, "Signalstärke (Balken)"],
+              [3, "Balken + dBm"],
             ],
             cfg.style | 0,
             (v) => set({ style: Number(v) }),
           ),
         ),
       );
-      sec.append(
-        el(
-          "p",
-          { class: "hint" },
-          "Verbindungsqualität (Signalstärke) folgt in Phase 2.",
-        ),
-      );
+      if ((cfg.style | 0) >= 2) {
+        sec.append(
+          el(
+            "p",
+            { class: "hint" },
+            "Gemessen wird der Empfangspegel (RSSI) des letzten Pakets, alle 2 s, solange du tippst. Bei USB-Ausgabe gibt es keine Funkstrecke zum Host, dort steht das USB-Symbol.",
+          ),
+        );
+      }
       break;
     case "layer":
       sec.append(
@@ -882,6 +901,13 @@ function simSection() {
   };
   const bat = rangeEl(0, 100, sim.battery, (v) => upd({ battery: v }));
   const peer = rangeEl(0, 100, sim.peerBattery, (v) => upd({ peerBattery: v }));
+  // dBm sliders: 0 would mean "unknown", so the slider covers -100..-30
+  const rssiHost = rangeEl(-100, -30, sim.rssiHost || -65, (v) =>
+    upd({ rssiHost: v }),
+  );
+  const rssiLink = rangeEl(-100, -30, sim.rssiLink || -55, (v) =>
+    upd({ rssiLink: v }),
+  );
   sec.append(
     row("Batterie", bat.input, bat.val),
     row(
@@ -938,6 +964,26 @@ function simSection() {
         "verbunden (rechte Hälfte)",
       ),
     ),
+    row(
+      "Signal Host",
+      checkEl(
+        "sim-host-rssi",
+        sim.rssiHost !== 0,
+        (v) => upd({ rssiHost: v ? -65 : 0 }),
+        "Funkverbindung (sonst unbekannt)",
+      ),
+    ),
+    row("", rssiHost.input, rssiHost.val),
+    row(
+      "Signal Hälfte",
+      checkEl(
+        "sim-link-rssi",
+        sim.rssiLink !== 0,
+        (v) => upd({ rssiLink: v ? -55 : 0 }),
+        "Funkverbindung (sonst getrennt)",
+      ),
+    ),
+    row("", rssiLink.input, rssiLink.val),
     row(
       "Layer-Nr.",
       el("input", {

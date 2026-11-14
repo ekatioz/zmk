@@ -37,6 +37,8 @@ export function defaultState() {
     profileConnected: true,
     profileBonded: true,
     linkConnected: true, // peripheral: link to central
+    rssiLink: -55, // dBm, 0 = unknown. peripheral: to the central; central: to the other half
+    rssiHost: -65, // dBm, 0 = unknown. central: to the host (PC)
     layerIndex: 0,
     layerLabel: "BASE",
     wpm: new Array(WPM_HIST).fill(0),
@@ -245,6 +247,30 @@ function batteryIconPart(level, s, unknown) {
   };
 }
 
+// Signal strength: 4 bars, `n` of them filled (0..4).
+export function rssiBars(rssi) {
+  if (!rssi) return 0;
+  if (rssi >= -60) return 4;
+  if (rssi >= -70) return 3;
+  if (rssi >= -80) return 2;
+  return 1;
+}
+
+function barsPart(n, s) {
+  return {
+    w: 11 * s,
+    h: 8 * s,
+    draw: (ctx, x, y) => {
+      for (let i = 0; i < 4; i++) {
+        const bh = (2 + 2 * i) * s;
+        if (i < n)
+          ctx.fb.rect(x + 3 * s * i, y + 8 * s - bh, 2 * s, bh, ctx.fg);
+        else ctx.fb.rect(x + 3 * s * i, y + 7 * s, 2 * s, s, ctx.fg);
+      }
+    },
+  };
+}
+
 function rowPart(a, b, gap) {
   return {
     w: a.w + gap + b.w,
@@ -340,24 +366,44 @@ function partsFor(cfg, slot, state) {
       };
     }
     case "connection": {
-      const style = cfg.style | 0; // 0 icon, 1 icon+label
+      const style = cfg.style | 0; // 0 icon, 1 icon+label, 2 bars, 3 bars+dBm
+      const peer = cfg.source === "peer" && cfg.side !== "peripheral";
       return (s) => {
         let icon;
         let label;
+        let rssi = 0;
+        let radio = true;
         if (cfg.side === "peripheral") {
           icon = iconPart("bluetooth", s);
           if (!state.linkConnected) icon = slashPart(icon);
           label = state.linkConnected ? "LINK" : "OFF";
+          rssi = state.linkConnected ? state.rssiLink : 0;
+        } else if (peer) {
+          icon = iconPart("bluetooth", s);
+          rssi = state.rssiLink;
+          if (!rssi) icon = slashPart(icon);
+          label = rssi ? "LINK" : "OFF";
         } else if (state.transport === TRANSPORT.USB) {
           icon = iconPart("usb", s);
           label = "USB";
+          radio = false;
         } else {
           icon = iconPart("bluetooth", s);
-          if (state.profileConnected) label = "BT";
-          else if (state.profileBonded) {
+          if (state.profileConnected) {
+            label = "BT";
+            rssi = state.rssiHost;
+          } else if (state.profileBonded) {
             icon = slashPart(icon);
             label = "OFF";
           } else label = "PAIR";
+        }
+        if (style >= 2 && radio) {
+          const parts = [barsPart(rssiBars(rssi), s)];
+          if (style === 3)
+            parts.push(
+              textPart(rssi ? String(rssi) : "--", Math.max(1, s >> 1), slot.w),
+            );
+          return parts;
         }
         const parts = [icon];
         if (style === 1) parts.push(textPart(label, s, slot.w));
@@ -532,7 +578,11 @@ export const WIDGET_AVAILABILITY = {
 
 export function widgetAvailable(type, side, cfg) {
   if (!WIDGET_AVAILABILITY[type]?.includes(side)) return false;
-  if (type === "battery" && side === "peripheral" && cfg?.source === "peer")
+  if (
+    (type === "battery" || type === "connection") &&
+    side === "peripheral" &&
+    cfg?.source === "peer"
+  )
     return false;
   return true;
 }

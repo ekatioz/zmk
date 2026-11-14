@@ -7,6 +7,8 @@
 #   -p            pristine build (wipe the build directories first); without it,
 #                 existing build directories are rebuilt incrementally
 #   left|right    build only the given half/halves (default: both)
+#   --stock       build the stock nice!view screen (art.c) instead of the screen from
+#                 display-designer/ (the default, see display-module/)
 
 set -euo pipefail
 
@@ -18,13 +20,15 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 app_dir="$repo_root/app"
 
 pristine=0
+stock=0
 sides=()
 for arg in "$@"; do
     case "$arg" in
     -p | --pristine) pristine=1 ;;
+    --stock) stock=1 ;;
     left | right) sides+=("$arg") ;;
     *)
-        echo "Usage: $0 [-p] [left|right]..." >&2
+        echo "Usage: $0 [-p] [--stock] [left|right]..." >&2
         exit 1
         ;;
     esac
@@ -43,6 +47,17 @@ source "$repo_root/.venv/bin/activate"
 
 cd "$app_dir"
 
+# The status screen comes from the display-module Zephyr module (layout in display-designer/).
+# CONFIG_NICE_VIEW_WIDGET_STATUS=n keeps the stock nice!view screen out of the build.
+extra_args=(
+    -DZMK_EXTRA_MODULES="$repo_root/display-module"
+    -DCONFIG_DISPLAY_DESIGNER=y
+    -DCONFIG_NICE_VIEW_WIDGET_STATUS=n
+)
+if [ "$stock" -eq 1 ]; then
+    extra_args=()
+fi
+
 outputs=()
 for side in "${sides[@]}"; do
     echo "==> Building $side half"
@@ -51,7 +66,7 @@ for side in "${sides[@]}"; do
         west build -d "build/$side"
     else
         west build -p always -d "build/$side" -b "$BOARD" -- \
-            -DSHIELD="${SHIELD}_${side} ${EXTRA_SHIELDS}"
+            -DSHIELD="${SHIELD}_${side} ${EXTRA_SHIELDS}" "${extra_args[@]}"
     fi
     outputs+=("$app_dir/build/$side/zephyr/zmk.uf2")
 done
