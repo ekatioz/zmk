@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <string.h>
+
 #include <zephyr/kernel.h>
 #include <zephyr/bluetooth/bluetooth.h>
 #include <zephyr/bluetooth/conn.h>
@@ -44,6 +46,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/split/bluetooth/peripheral.h>
 #endif
 
+#include "dd_link.h"
 #include "dd_render.h"
 
 extern const struct dd_layout dd_layout;
@@ -173,6 +176,14 @@ struct layer_state {
 static void layer_update_cb(struct layer_state s) {
     state.layer_index = s.index;
     state.layer_label = s.label ? s.label : "";
+
+    /* the other half shows the layer as well */
+    uint8_t msg[DD_LINK_MAX_PAYLOAD];
+    size_t name_len = strnlen(state.layer_label, sizeof(msg) - 1);
+    msg[0] = s.index;
+    memcpy(&msg[1], state.layer_label, name_len);
+    dd_link_send(DD_LINK_MSG_LAYER, msg, 1 + name_len);
+
     redraw();
 }
 
@@ -245,6 +256,25 @@ ZMK_SUBSCRIPTION(dd_peer_battery, zmk_peripheral_battery_state_changed);
 
 #else /* peripheral */
 
+/* --- Messages from the central --------------------------------------------- */
+
+static char layer_name[DD_LINK_MAX_PAYLOAD];
+
+/* Runs on the display work queue. */
+static void link_message_cb(uint8_t id, const uint8_t *data, uint8_t len) {
+    switch (id) {
+    case DD_LINK_MSG_LAYER:
+        if (len >= 1) {
+            memcpy(layer_name, &data[1], len - 1);
+            layer_name[len - 1] = '\0';
+            state.layer_index = data[0];
+            state.layer_label = layer_name;
+            redraw();
+        }
+        break;
+    }
+}
+
 /* --- Link to the central -------------------------------------------------- */
 
 struct link_state {
@@ -260,8 +290,8 @@ static struct link_state link_get_state(const zmk_event_t *eh) {
     return (struct link_state){.connected = zmk_split_bt_peripheral_is_connected()};
 }
 
-ZMK_DISPLAY_WIDGET_LISTENER(dd_link, struct link_state, link_update_cb, link_get_state)
-ZMK_SUBSCRIPTION(dd_link, zmk_split_peripheral_status_changed);
+ZMK_DISPLAY_WIDGET_LISTENER(dd_split_link, struct link_state, link_update_cb, link_get_state)
+ZMK_SUBSCRIPTION(dd_split_link, zmk_split_peripheral_status_changed);
 
 #endif /* DD_CENTRAL */
 
@@ -393,7 +423,8 @@ lv_obj_t *zmk_display_status_screen() {
     dd_peer_battery_init();
 #endif
 #else
-    dd_link_init();
+    dd_split_link_init();
+    dd_link_set_handler(link_message_cb);
 #endif
 
     if (dd_layout.anim_tick_ms != 0) {

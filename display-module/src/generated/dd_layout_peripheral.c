@@ -5,7 +5,7 @@
 
 static const struct dd_slot slots[] = {
     {.x = 0, .y = 0, .w = 68, .h = 46, .kind = DD_KIND_CONNECTION, .scale = 0, .style = 2, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* T1 */
-    {.x = 0, .y = 46, .w = 68, .h = 68, .kind = DD_KIND_CONNECTION, .scale = 0, .style = 0, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* C */
+    {.x = 0, .y = 46, .w = 68, .h = 68, .kind = DD_KIND_LAYER, .scale = 0, .style = 0, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* C */
     {.x = 0, .y = 114, .w = 68, .h = 46, .kind = DD_KIND_BATTERY, .scale = 0, .style = 1, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* B1 */
 };
 

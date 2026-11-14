@@ -140,7 +140,7 @@ const designs = {
           frames: generate("equalizer", 50, 40, 4),
           period: 500,
         },
-        B1: { type: "text", text: "L", scale: 3, align: "right" },
+        B1: { type: "layer", style: 2, scale: 2, align: "right" },
         B2: { type: "image", bitmap: logo(), align: "left" },
         B3: {
           type: "anim",

@@ -569,7 +569,7 @@ export const WIDGET_AVAILABILITY = {
   battery: ["central", "peripheral"],
   connection: ["central", "peripheral"],
   profile: ["central"],
-  layer: ["central"],
+  layer: ["central", "peripheral"],
   wpm: ["central"],
   text: ["central", "peripheral"],
   image: ["central", "peripheral"],
