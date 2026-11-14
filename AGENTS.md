@@ -1,0 +1,108 @@
+# AGENTS.md
+
+This file provides guidance to AI coding agents when working with code in this repository.
+
+## What this is
+
+ZMK is keyboard firmware built as a Zephyr RTOS application (Zephyr `v4.1.0+zmk-fixes`, pinned in `app/west.yml`). The firmware lives in `app/`; the Docusaurus documentation site lives in `docs/`.
+
+This checkout is a personal fork (`origin` = `ekatioz/zmk`, no upstream remote configured). The `modified-overlay` branch carries local customizations on top of upstream `main`, confined to:
+
+- `app/boards/shields/splitkb_aurora_lily58/splitkb_aurora_lily58.keymap` — personal keymap
+- `app/boards/shields/nice_view/widgets/art.c` — custom nice!view peripheral display art (LVGL image data)
+
+Keep fork-specific changes limited to those areas so merges from upstream stay clean.
+
+## Toolchain
+
+A native toolchain is installed on this machine:
+
+- West workspace rooted at the repo root (`.west/`, `zephyr/`, `modules/` — all gitignored).
+- Python 3.12 venv at `.venv/` (repo root) with `west`, Zephyr's Python requirements, and **CMake 3.31**. `west` is not on the global `PATH`; activate first: `source ../.venv/bin/activate` (from `app/`).
+- Zephyr SDK 0.17.0 at `~/zephyr-sdk-0.17.0` with only the `arm-zephyr-eabi` toolchain (plus host tools incl. `dtc`).
+
+The system CMake is 4.x, which fails on Zephyr 4.1 (`FindZephyr-sdk.cmake: if given arguments ... Unknown arguments specified`) — always build with the venv active so its CMake 3.x is used. To pull new upstream dependencies after `app/west.yml` changes, run `west update`.
+
+## Commands
+
+All firmware commands run from `app/`.
+
+```sh
+# Build (board with onboard MCU / MCU board + shield)
+west build -b planck//zmk
+west build -d build/left  -b nice_nano//zmk -- -DSHIELD="splitkb_aurora_lily58_left nice_view_adapter nice_view"
+west build -d build/right -b nice_nano//zmk -- -DSHIELD="splitkb_aurora_lily58_right nice_view_adapter nice_view"
+west build -d build/left          # incremental rebuild, args are cached
+west build -p ...                 # pristine; required when changing board/shield/ZMK_CONFIG
+west flash -d build/left
+
+# Extra Kconfig / external config dir / external module
+west build -b <board> -- -DCONFIG_ZMK_SLEEP=y -DZMK_CONFIG=/abs/path/config -DZMK_EXTRA_MODULES=/abs/path/module
+
+# Tests (native_sim snapshot tests)
+west test                                         # all
+west test tests/hold-tap                          # one suite
+west test tests/hold-tap/tap-preferred/1-dn-up    # single case
+ZMK_TESTS_AUTO_ACCEPT=1 west test tests/<case>    # overwrite snapshot with actual output
+ZMK_TESTS_VERBOSE=1 west test tests/<case>
+
+# BLE tests (need BabbleSim; BSIM_OUT_PATH must be set)
+./run-ble-test.sh tests/ble/<case>
+```
+
+`west test` wraps `app/run-test.sh`; build output and logs land in `app/build/tests/<case>/` (`build.log`, `keycode_events_full.log`).
+
+Lint/format (CI enforces all via pre-commit):
+
+```sh
+pre-commit run --all-files     # clang-format (LLVM base, 4-space, 100 col), prettier, remove-tabs, gitlint
+```
+
+Docs (from `docs/`): `npm ci`, `npm start`, `npm run build`, `npm run lint`, `npm run prettier:check`, `npm run typecheck`.
+
+Commit messages must be Conventional Commits with titles ≤ 80 chars (gitlint; e.g. `fix(behaviors): ...`, `feat(shields): ...`).
+
+## Architecture
+
+### Build composition
+
+`app/CMakeLists.txt` registers two in-tree Zephyr modules besides the app itself:
+
+- `app/module/` — ZMK's own drivers (kscan, sensors, display, etc.), bindings, and libs that are structured as a Zephyr module rather than app code.
+- `app/keymap-module/` — CMake logic (`modules/modules.cmake`) that resolves `ZMK_CONFIG`, and locates the `.keymap`, `.conf`, and overlays for the selected board/shield. A keymap in `ZMK_CONFIG` overrides the default one that sits next to the shield/board definition.
+
+Source files are listed explicitly in `app/CMakeLists.txt`, mostly gated on Kconfig symbols. New `.c` files must be added there (and usually a symbol in `app/Kconfig` / `app/Kconfig.behaviors`). Note the large block conditioned on `(NOT CONFIG_ZMK_SPLIT) OR CONFIG_ZMK_SPLIT_ROLE_CENTRAL`: keymap, HID, most behaviors, combos, and endpoints only compile for the central half. Split peripherals just forward position/sensor events.
+
+Hardware definitions: `app/boards/<vendor>/` are Zephyr boards (built as `<board>//zmk` variant), `app/boards/shields/` are shields (keyboard PCBs or add-ons like `nice_view`). Each has a `*.zmk.yml` metadata file validated in CI against `schema/`.
+
+### Event flow
+
+Everything is devicetree-driven and wired together through the event manager (`app/include/zmk/event_manager.h`, `app/src/event_manager.c`):
+
+1. kscan driver → `matrix_transform` / `physical_layouts` map (row, col) to a key position → `zmk_position_state_changed` event raised.
+2. Listeners receive events in link order and may return `ZMK_EV_EVENT_BUBBLE`, `HANDLED`, or `CAPTURED` (captured events can be held and later re-raised/released — this is how `combo.c` and hold-tap delay key resolution).
+3. `keymap.c` resolves the position against active layers and invokes the bound behavior.
+4. Behaviors (`app/src/behaviors/behavior_*.c`) typically raise `zmk_keycode_state_changed` etc.; `hid_listener.c` turns those into HID report updates; `endpoints.c` sends reports over USB (`usb_hid.c`) or BLE (`hog.c`).
+
+Events are declared with `ZMK_EVENT_DECLARE` (header in `app/include/zmk/events/`) and `ZMK_EVENT_IMPL` (source in `app/src/events/`); consumers use `ZMK_LISTENER` + `ZMK_SUBSCRIPTION`. These macros place data into custom linker sections (`app/include/linker/*.ld`) — there is no runtime registration.
+
+### Behaviors
+
+A behavior is a Zephyr device driver: a devicetree binding (`app/dts/bindings/behaviors/`), a node instance (`app/dts/behaviors/*.dtsi`, aggregated by `app/dts/behaviors.dtsi`), and a C file implementing `struct behavior_driver_api` instantiated per DT node via `BEHAVIOR_DT_INST_DEFINE`. Keymaps reference behaviors by DT label (`&kp`, `&mt`, `&mo`, …). Key/modifier constants for keymaps come from `app/include/dt-bindings/zmk/`.
+
+### Split, Studio, display
+
+- `app/src/split/` — transport-agnostic `central.c`/`peripheral.c` with `bluetooth/` and `wired/` transports beneath.
+- `app/src/studio/` — ZMK Studio RPC (runtime keymap editing); protobuf messages come from the `zmk-studio-messages` west module and are generated with nanopb.
+- `app/src/display/` — LVGL-based status screens and widgets; shields can supply a custom status screen (as `nice_view` does via `custom_status_screen.c` + `widgets/`).
+
+### Tests
+
+Each test case is a directory under `app/tests/` containing:
+
+- `native_sim.keymap` — keymap plus `&kscan { events = <ZMK_MOCK_PRESS(row,col,delay_ms) ...>; }` scripted input (suites usually share a `behavior_keymap.dtsi` one level up)
+- `events.patterns` — sed script filtering/renaming log lines
+- `keycode_events.snapshot` — expected filtered output
+- optional `pending` (failure tolerated) and `extra-cmake-args`
+
+The firmware is built for `native_sim//zmk_test_mock`, executed, its log filtered through `events.patterns`, and diffed against the snapshot. Tests therefore depend on `LOG_DBG` message text in the source — changing log strings in `app/src/` can break snapshots. BLE tests use `nrf52_bsim.keymap` instead and run under BabbleSim.
