@@ -25,7 +25,15 @@ The system CMake is 4.x, which fails on Zephyr 4.1 (`FindZephyr-sdk.cmake: if gi
 
 ## Commands
 
-All firmware commands run from `app/`.
+For this fork's keyboard (Aurora Lily58, nice!nano, nice!view), use the wrapper script at the repo root. It activates the venv itself and prints the paths of the resulting `app/build/{left,right}/zephyr/zmk.uf2` files:
+
+```sh
+./build-lily58.sh            # both halves, incremental if already built
+./build-lily58.sh -p         # pristine rebuild
+./build-lily58.sh left       # one half only
+```
+
+All other firmware commands run from `app/`.
 
 ```sh
 # Build (board with onboard MCU / MCU board + shield)
