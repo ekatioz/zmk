@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: MIT
+
+config DISPLAY_DESIGNER
+    bool "Status screen designed with display-designer"
+    depends on ZMK_DISPLAY
+    select LV_USE_CANVAS
+    select LV_USE_IMAGE
+    select BT_CTLR_CONN_RSSI if BT_CTLR_CONN_RSSI_SUPPORT
+    select ZMK_WPM if !ZMK_SPLIT || ZMK_SPLIT_ROLE_CENTRAL
+    select ZMK_SPLIT_BLE_CENTRAL_BATTERY_LEVEL_FETCHING if ZMK_SPLIT_BLE && ZMK_SPLIT_ROLE_CENTRAL
+    help
+      Replaces the built-in and the nice!view status screens by the layout in
+      display-designer/layout.json. Build with CONFIG_NICE_VIEW_WIDGET_STATUS=n so that the
+      stock nice!view screen is not compiled in as well (build-lily58.sh does this).
+
+if DISPLAY_DESIGNER
+
+config DISPLAY_DESIGNER_ANIM_ONLY_WHEN_ACTIVE
+    bool "Only run animations while the keyboard is in use"
+    default y
+    help
+      Stops the animation timer once ZMK reports the keyboard as idle, which saves battery.
+      The last frame stays on screen.
+
+endif # DISPLAY_DESIGNER

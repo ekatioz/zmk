@@ -1,0 +1,68 @@
+# Display Designer
+
+Web tool to design the nice!view screens of both keyboard halves (68×160 px, 1 bit) and turn the
+design into firmware. The screen is built from slots, like a watch face: a large centre slot and
+1, 2 or 4 slots above and below it. Every slot gets a widget.
+
+```sh
+display-designer/serve.py          # opens http://127.0.0.1:8765
+```
+
+Click a slot, pick a widget, tweak it, press **In Repo speichern** (Ctrl+S). That writes
+`layout.json` (the design) and the generated C sources in `display-module/src/generated/`. Then
+build as usual:
+
+```sh
+./build-lily58.sh -p
+```
+
+## Widgets (phase 1)
+
+| Widget     | Halves | Shows                                                                                                   |
+| ---------- | ------ | ------------------------------------------------------------------------------------------------------- |
+| Batterie   | both   | battery of this half; on the left half also of the other half (fetched over the split link)             |
+| Verbindung | both   | USB / Bluetooth state (left), link to the left half (right)                                             |
+| BT-Profil  | left   | the active Bluetooth profile 1–5 (filled = connected, dashed = bonded but disconnected, ring = pairing) |
+| Layer      | left   | active layer name and/or number                                                                         |
+| WPM        | left   | typing speed as number and/or graph                                                                     |
+| Text, Bild | both   | static text, an imported picture (converted to 1 bit)                                                   |
+| Animation  | both   | a flip-book: built-in generators or your own pictures / GIF                                             |
+
+Widgets that need keyboard state only the central half has are not offered on the right half.
+Animations are plain frame sequences; the keyboard only plays them back (2 to 0.5 frames/s) and
+pauses them while idle (`CONFIG_DISPLAY_DESIGNER_ANIM_ONLY_WHEN_ACTIVE`).
+
+## How it fits together
+
+```
+display-designer/            this tool (tooling only, nothing is compiled from here)
+  layout.json                the design
+  lib/render.js              reference renderer (used by the preview)
+  lib/codegen.js             design -> C
+  generate.mjs               layout.json -> display-module/src/generated/ without the browser
+  test/run.mjs               compiles dd_render.c natively and checks it draws the same pixels
+display-module/              ZMK/Zephyr module with the firmware side
+  src/dd_render.c            C twin of render.js (no LVGL)
+  src/dd_screen.c            LVGL + ZMK glue: collects state, renders, rotates into the canvas
+  src/generated/             generated assets (font, icons) and the two layouts
+```
+
+`build-lily58.sh` adds the module (`-DZMK_EXTRA_MODULES`) and builds with
+`CONFIG_DISPLAY_DESIGNER=y CONFIG_NICE_VIEW_WIDGET_STATUS=n`, which replaces the stock nice!view
+screen. `./build-lily58.sh -p --stock` builds the stock screen with `art.c` instead. Switching
+between the two needs a pristine build (`-p`).
+
+## Development
+
+- `node display-designer/test/run.mjs` – JS and C renderers must stay pixel-identical. Run it after
+  touching `lib/render.js` or `display-module/src/dd_render.c`; both have to change together.
+- Text uses the 8×8 Unscii font (public domain, extracted from LVGL by `gen-font.mjs`), ASCII only.
+  Everything is drawn with own primitives instead of LVGL fonts so that the preview is exact.
+- Adding a widget: `lib/render.js` (`partsFor`), `display-module/src/dd_render.c` (`build_parts`),
+  the `KINDS`/`dd_kind` lists, the panel in `app.js`, and a case in `test/run.mjs`.
+
+## Not done yet
+
+- Phase 2: connection quality (RSSI) widget.
+- Phase 3: clock and PC volume, which need a helper program on the PC.
+- Not tested on hardware yet: only the firmware build and the renderer comparison have run.

@@ -1,0 +1,4 @@
+name: zmk-display-designer
+build:
+  cmake: .
+  kconfig: Kconfig
