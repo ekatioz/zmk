@@ -46,6 +46,8 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/split/bluetooth/peripheral.h>
 #endif
 
+#include <zmk/activity.h>
+
 #include "dd_host.h"
 #include "dd_link.h"
 #include "dd_render.h"
@@ -68,14 +70,71 @@ static lv_obj_t *canvas;
 static struct dd_state state = {
     .peer_battery = -1,
     .layer_label = "",
+    .cpu = -1,
+    .ram = -1,
+    .temp = DD_UNKNOWN_TEMP,
+    .vol = -1,
+    .w_temp = DD_UNKNOWN_TEMP,
+    .w_hi = DD_UNKNOWN_TEMP,
+    .w_lo = DD_UNKNOWN_TEMP,
+    .w_cond = -1,
 };
 static uint32_t tick;
+
+/* Data from the PC helper goes stale: the helper may have stopped or the PC may be off. */
+#define STATS_STALE_MS (2 * 60 * 1000)
+#define WEATHER_STALE_MS (6 * 60 * 60 * 1000)
+static int64_t stats_stamp;   /* uptime of the last stats message, 0 = none */
+static int64_t weather_stamp; /* same for the weather */
+
+static void expire_pc_data(void) {
+    const int64_t now = k_uptime_get();
+
+    if (stats_stamp != 0 && now - stats_stamp > STATS_STALE_MS) {
+        stats_stamp = 0;
+        state.cpu = state.ram = state.vol = -1;
+        state.temp = DD_UNKNOWN_TEMP;
+        state.mute = false;
+    }
+    if (weather_stamp != 0 && now - weather_stamp > WEATHER_STALE_MS) {
+        weather_stamp = 0;
+        state.w_temp = state.w_hi = state.w_lo = DD_UNKNOWN_TEMP;
+        state.w_cond = -1;
+    }
+}
+
+/* Decode the payloads of DD_HOST_MSG_STATS / DD_HOST_MSG_WEATHER (also used on the link). */
+static bool apply_stats(const uint8_t *d, uint8_t len) {
+    if (len < 5) {
+        return false;
+    }
+    state.cpu = d[0] <= 100 ? d[0] : -1;
+    state.ram = d[1] <= 100 ? d[1] : -1;
+    state.vol = d[2] <= 100 ? d[2] : -1;
+    state.temp = (int8_t)d[3];
+    state.mute = d[4] != 0;
+    stats_stamp = k_uptime_get();
+    return true;
+}
+
+static bool apply_weather(const uint8_t *d, uint8_t len) {
+    if (len < 4) {
+        return false;
+    }
+    state.w_temp = (int8_t)d[0];
+    state.w_cond = d[1] < DD_WEATHER_ICONS ? d[1] : -1;
+    state.w_hi = (int8_t)d[2];
+    state.w_lo = (int8_t)d[3];
+    weather_stamp = k_uptime_get();
+    return true;
+}
 
 /* All of the following runs on the display work queue, so no locking is needed. */
 static void redraw(void) {
     if (canvas == NULL) {
         return;
     }
+    expire_pc_data();
     state.utc = dd_time_utc();
     state.utc_offset_min = dd_time_offset_min();
     dd_render(&dd_layout, &state, tick, framebuffer);
@@ -289,6 +348,16 @@ static void link_message_cb(uint8_t id, const uint8_t *data, uint8_t len) {
             redraw();
         }
         break;
+    case DD_LINK_MSG_STATS:
+        if (apply_stats(data, len) && zmk_activity_get_state() == ZMK_ACTIVITY_ACTIVE) {
+            redraw();
+        }
+        break;
+    case DD_LINK_MSG_WEATHER:
+        if (apply_weather(data, len)) {
+            redraw();
+        }
+        break;
     case DD_LINK_MSG_LAYER:
         if (len >= 1) {
             memcpy(layer_name, &data[1], len - 1);
@@ -430,6 +499,26 @@ static void host_message_cb(uint8_t id, const uint8_t *data, uint8_t len) {
             time_work_schedule(); /* the full minute/second moved */
         }
         redraw();
+    } else if (id == DD_HOST_MSG_STATS && apply_stats(data, len)) {
+        /* the other half gets the values too, but not more often than every 10 s, except for
+         * the volume, which has to follow at once */
+        static int64_t last_forward;
+        static int8_t last_vol = -2;
+        static bool last_mute;
+        const int64_t now = k_uptime_get();
+
+        if (state.vol != last_vol || state.mute != last_mute || now - last_forward >= 10000) {
+            last_vol = state.vol;
+            last_mute = state.mute;
+            last_forward = now;
+            dd_link_send(DD_LINK_MSG_STATS, data, 5);
+        }
+        if (zmk_activity_get_state() == ZMK_ACTIVITY_ACTIVE) {
+            redraw();
+        }
+    } else if (id == DD_HOST_MSG_WEATHER && apply_weather(data, len)) {
+        dd_link_send(DD_LINK_MSG_WEATHER, data, 4);
+        redraw();
     }
 }
 #endif
@@ -445,6 +534,10 @@ static void anim_work_cb(struct k_work *work) {
     k_work_reschedule_for_queue(zmk_display_work_q(), &anim_work, K_MSEC(dd_layout.anim_tick_ms));
 }
 
+/* Data from the PC is not drawn while the keyboard is idle; catch up when it wakes. */
+static void refresh_work_cb(struct k_work *work) { redraw(); }
+static K_WORK_DEFINE(refresh_work, refresh_work_cb);
+
 /* Animation and signal polling stop while the keyboard is idle, which saves battery. The last
  * picture stays on screen. */
 static int activity_cb(const zmk_event_t *eh) {
@@ -453,6 +546,10 @@ static int activity_cb(const zmk_event_t *eh) {
         return ZMK_EV_EVENT_BUBBLE;
     }
     const bool active = ev->state == ZMK_ACTIVITY_ACTIVE;
+
+    if (active) {
+        k_work_submit_to_queue(zmk_display_work_q(), &refresh_work);
+    }
 
     if (dd_layout.anim_tick_ms != 0 && IS_ENABLED(CONFIG_DISPLAY_DESIGNER_ANIM_ONLY_WHEN_ACTIVE)) {
         if (active) {

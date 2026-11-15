@@ -4,20 +4,22 @@
 #include "../dd_render.h"
 
 static const struct dd_slot slots[] = {
-    {.x = 0, .y = 0, .w = 34, .h = 46, .kind = DD_KIND_LAYER, .scale = 0, .style = 0, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* T1 */
-    {.x = 34, .y = 0, .w = 34, .h = 46, .kind = DD_KIND_CONNECTION, .scale = 0, .style = 2, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* T2 */
-    {.x = 0, .y = 46, .w = 68, .h = 68, .kind = DD_KIND_ANALOG, .scale = 0, .style = 0, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* C */
-    {.x = 0, .y = 114, .w = 68, .h = 46, .kind = DD_KIND_BATTERY, .scale = 0, .style = 1, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* B1 */
+    {.x = 0, .y = 0, .w = 34, .h = 27, .kind = DD_KIND_LAYER, .scale = 0, .style = 1, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* T1 */
+    {.x = 34, .y = 0, .w = 34, .h = 27, .kind = DD_KIND_CONNECTION, .scale = 0, .style = 2, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* T2 */
+    {.x = 0, .y = 27, .w = 34, .h = 28, .kind = DD_KIND_BATTERY, .scale = 0, .style = 1, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* T3 */
+    {.x = 34, .y = 27, .w = 34, .h = 28, .kind = DD_KIND_MOON, .scale = 0, .style = 0, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* T4 */
+    {.x = 0, .y = 55, .w = 68, .h = 69, .kind = DD_KIND_WEATHER, .scale = 0, .style = 0, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* C */
+    {.x = 0, .y = 124, .w = 68, .h = 36, .kind = DD_KIND_SUN, .scale = 0, .style = 0, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* B1 */
 };
 
 const struct dd_layout dd_layout = {
     .peripheral = true,
     .invert = true,
-    .slot_count = 4,
+    .slot_count = 6,
     .anim_tick_ms = 0,
     .rssi = true,
     .time_mode = 1,
-    .lat_e4 = 525200,
-    .lon_e4 = 134050,
+    .lat_e4 = 519739,
+    .lon_e4 = 76076,
     .slots = slots,
 };

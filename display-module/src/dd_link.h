@@ -22,6 +22,8 @@
 #define DD_LINK_MSG_LAYER 1  /* data[0] = layer index, data[1..] = layer name (not terminated) */
 #define DD_LINK_MSG_OUTPUT 2 /* data: transport, profile (0-based), connected, bonded */
 #define DD_LINK_MSG_TIME 3   /* data: utc (uint32, little endian), utc offset in minutes (int16) */
+#define DD_LINK_MSG_STATS 4   /* as DD_HOST_MSG_STATS */
+#define DD_LINK_MSG_WEATHER 5 /* as DD_HOST_MSG_WEATHER */
 
 typedef void (*dd_link_handler_t)(uint8_t id, const uint8_t *data, uint8_t len);
 

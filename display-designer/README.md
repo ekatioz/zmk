@@ -38,18 +38,28 @@ run the script by hand:
 | Binäruhr   | both   | BCD dots for hours, minutes and optionally seconds                                                      |
 | Mondphase  | both   | moon disc with the lit part, optionally the illumination in %                                           |
 | Sonne      | both   | sunrise and sunset of today for the location set in the designer                                        |
+| PC-Werte   | both   | CPU load, RAM, CPU temperature or volume as value, label and/or gauge (data from `pc-helper/`)           |
+| Wetter     | both   | weather symbol, temperature and today's high/low (data from `pc-helper/`)                               |
 
 Widgets that need keyboard state the right half does not have (WPM, battery of the other half) are not offered there. Layer and profile are sent to the right half over the link below.
 Animations are plain frame sequences; the keyboard only plays them back (2 to 0.5 frames/s) and
 pauses them while idle (`CONFIG_DISPLAY_DESIGNER_ANIM_ONLY_WHEN_ACTIVE`).
+
+### PC data
+
+`pc-helper/` sends the time, CPU/RAM/temperature/volume and the weather to the left half
+(`dd_host.c`, messages in `dd_host.h`), which forwards them to the right half over the link
+(`DD_LINK_MSG_STATS`, `DD_LINK_MSG_WEATHER`; stats at most every 10 s, volume at once). Values that
+stay away are shown as `--` after 2 minutes (weather: 6 hours). The previews use the sliders under
+"Vorschau-Werte". Not drawn while the keyboard is idle; it catches up when you start typing.
 
 ### Time
 
 The keyboard has no real-time clock. `dd_time.c` keeps the time as a base value plus the uptime since
 it was set. It starts at the time of the last `./build-lily58.sh` (good enough while developing, wrong
 after every restart) and is set by a message: the left half sends its time to the right half
-(`DD_LINK_MSG_TIME`) every time the halves connect. A helper program on the PC will set the real time
-later (`dd_time_set()`). The time zone is a plain offset in minutes, so daylight saving time needs a
+(`DD_LINK_MSG_TIME`) every time the halves connect. A helper program on the PC sets the real time
+(`dd_time_set()`, see `pc-helper/`). The time zone is a plain offset in minutes, so daylight saving time needs a
 new sync.
 
 Date, week, moon phase and sun times are calculated on the keyboard (`dd_timecalc.c`, twin of
@@ -110,5 +120,5 @@ between the two needs a pristine build (`-p`).
 
 ## Not done yet
 
-- Phase 3: clock and PC volume, which need a helper program on the PC.
+- Phase 3 is done in code (clock, PC data, weather) but only the time has run on hardware.
 - Not tested on hardware yet: only the firmware build and the renderer comparison have run.

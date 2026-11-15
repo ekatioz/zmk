@@ -42,6 +42,23 @@ export const KINDS = [
   "binary",
   "moon",
   "sun",
+  "stat",
+  "weather",
+];
+
+// Values the PC helper sends: the metric a "stat" widget shows (its `metric`, in C `source`).
+export const STAT_METRICS = ["cpu", "ram", "temp", "volume"];
+const STAT_LABELS = ["CPU", "RAM", "TEMP", "VOL"];
+export const UNKNOWN_TEMP = -128; // temperatures: this value means "not known"
+// Weather condition codes in the order the PC helper sends them.
+export const WEATHER_ICONS = [
+  "weather_clear",
+  "weather_partly",
+  "weather_cloud",
+  "weather_fog",
+  "weather_rain",
+  "weather_snow",
+  "weather_storm",
 ];
 
 // Where the sun times are computed for unless the design says otherwise (Berlin).
@@ -62,6 +79,15 @@ export function defaultState() {
     rssiHost: -65, // dBm, 0 = unknown. central: to the host (PC)
     utc: 1750507653, // seconds since 1970, 2025-06-21 12:07:33 UTC
     utcOffset: 120, // local time minus UTC in minutes
+    cpu: 23, // percent, <0 = unknown
+    ram: 61,
+    temp: 54, // CPU temperature in degrees C, -128 = unknown
+    vol: 40, // percent, <0 = unknown
+    mute: false,
+    wTemp: 14, // weather: degrees C, -128 = unknown
+    wCond: 1, // 0..6 (WEATHER_ICONS), <0 = unknown
+    wHi: 17,
+    wLo: 8,
     layerIndex: 0,
     layerLabel: "BASE",
     wpm: new Array(WPM_HIST).fill(0),
@@ -294,6 +320,24 @@ function barsPart(n, s) {
   };
 }
 
+// A horizontal gauge over the whole slot width, `level` percent filled.
+function gaugePart(level, unknown, s, w) {
+  const h = 3 * s + 3;
+  return {
+    w,
+    h,
+    draw: (ctx, x, y) => {
+      const { fb, fg, bg } = ctx;
+      fb.rect(x, y, w, h, fg);
+      fb.rect(x + 1, y + 1, w - 2, h - 2, bg);
+      if (!unknown) {
+        const fw = Math.floor(((w - 4) * level + 50) / 100);
+        fb.rect(x + 2, y + 2, fw, h - 4, fg);
+      }
+    },
+  };
+}
+
 function rowPart(a, b, gap) {
   return {
     w: a.w + gap + b.w,
@@ -509,6 +553,64 @@ function partsFor(cfg, slot, state) {
             rowPart(iconPart("sunset", s), textPart(fmt(t.set), s, slot.w), s),
           );
         return out;
+      };
+    }
+    case "stat": {
+      // 0 value + label, 1 value, 2 value + gauge, 3 label + value + gauge
+      const style = cfg.style | 0;
+      const m = Math.max(0, STAT_METRICS.indexOf(cfg.metric));
+      let unknown;
+      let text;
+      let pct;
+      if (m === 2) {
+        unknown = state.temp === UNKNOWN_TEMP;
+        text = unknown ? "--" : `${state.temp}C`;
+        pct = unknown
+          ? 0
+          : Math.max(
+              0,
+              Math.min(100, Math.trunc(((state.temp - 20) * 100) / 80)),
+            );
+      } else {
+        const v = m === 0 ? state.cpu : m === 1 ? state.ram : state.vol;
+        unknown = v < 0;
+        const muted = m === 3 && state.mute && !unknown;
+        text = unknown ? "--" : muted ? "MUTE" : `${v}%`;
+        pct = unknown || muted ? 0 : v;
+      }
+      return (s) => {
+        const small = Math.max(1, s >> 1);
+        const value = textPart(text, s, slot.w);
+        const label = textPart(STAT_LABELS[m], small, slot.w);
+        const gauge = gaugePart(pct, unknown, s, slot.w);
+        if (style === 1) return [value];
+        if (style === 2) return [value, gauge];
+        if (style === 3) return [label, value, gauge];
+        return [value, label];
+      };
+    }
+    case "weather": {
+      // 0 icon + temperature, 1 temperature, 2 icon + temperature, high/low
+      const style = cfg.style | 0;
+      const known = state.wTemp !== UNKNOWN_TEMP;
+      const temp = known ? `${state.wTemp}C` : "--";
+      const icon =
+        state.wCond >= 0 && state.wCond < WEATHER_ICONS.length
+          ? WEATHER_ICONS[state.wCond]
+          : null;
+      const hl =
+        state.wHi !== UNKNOWN_TEMP && state.wLo !== UNKNOWN_TEMP
+          ? `${state.wHi}/${state.wLo}`
+          : "--";
+      return (s) => {
+        const t = textPart(temp, s, slot.w);
+        if (style === 1 || (style === 0 && !icon)) return [t];
+        if (style === 0) return [iconPart(icon, s), t];
+        const small = Math.max(1, s >> 1);
+        return [
+          icon ? rowPart(iconPart(icon, s), t, s) : t,
+          textPart(hl, small, slot.w),
+        ];
       };
     }
     case "profile":
@@ -807,6 +909,8 @@ export const WIDGET_AVAILABILITY = {
   binary: ["central", "peripheral"],
   moon: ["central", "peripheral"],
   sun: ["central", "peripheral"],
+  stat: ["central", "peripheral"],
+  weather: ["central", "peripheral"],
 };
 
 // How often a design needs the screen redrawn because of the time: 0 never, 1 every minute,

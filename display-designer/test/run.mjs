@@ -141,6 +141,49 @@ const designs = {
       },
     ),
   },
+  data_a: {
+    side: "central",
+    cfg: side(
+      { count: 2, height: 40 },
+      { count: 2, height: 40 },
+      {
+        T1: { type: "stat", metric: "cpu", style: 0 },
+        T2: { type: "stat", metric: "ram", style: 1 },
+        C: { type: "stat", metric: "temp", style: 3 },
+        B1: { type: "stat", metric: "volume", style: 2 },
+        B2: { type: "stat", metric: "volume", style: 0, invert: true },
+      },
+    ),
+  },
+  data_b: {
+    side: "peripheral",
+    cfg: side(
+      { count: 2, height: 40 },
+      { count: 1, height: 50 },
+      {
+        T1: { type: "weather", style: 0 },
+        T2: { type: "weather", style: 1, align: "right" },
+        C: { type: "weather", style: 2, scale: 2 },
+        B1: { type: "stat", metric: "cpu", style: 2, align: "left" },
+      },
+    ),
+  },
+  data_tiny: {
+    side: "central",
+    cfg: side(
+      { count: 4, height: 12 },
+      { count: 2, height: 24 },
+      {
+        T1: { type: "stat", metric: "cpu", style: 3 },
+        T2: { type: "stat", metric: "temp", style: 2 },
+        T3: { type: "weather", style: 0 },
+        T4: { type: "weather", style: 2 },
+        C: { type: "weather", style: 0, scale: 4 },
+        B1: { type: "stat", metric: "ram", style: 3 },
+        B2: { type: "weather", style: 1 },
+      },
+    ),
+  },
   central_big: {
     side: "central",
     cfg: side(
@@ -274,6 +317,43 @@ states.push(
   { ...defaultState(), utc: utcOf(2024, 12, 21, 18, 0, 10), utcOffset: -300 },
   { ...defaultState(), utc: utcOf(2025, 11, 14, 6, 15, 5), utcOffset: 60 },
 );
+// values from the PC helper: unknown, extremes, every weather condition
+states.push(
+  {
+    ...defaultState(),
+    cpu: -1,
+    ram: -1,
+    temp: -128,
+    vol: -1,
+    wTemp: -128,
+    wCond: -1,
+    wHi: -128,
+    wLo: -128,
+  },
+  {
+    ...defaultState(),
+    cpu: 100,
+    ram: 0,
+    temp: 105,
+    vol: 80,
+    mute: true,
+    wTemp: -12,
+    wCond: 5,
+    wHi: -3,
+    wLo: -20,
+  },
+  {
+    ...defaultState(),
+    cpu: 7,
+    ram: 99,
+    temp: 12,
+    vol: 100,
+    wTemp: 31,
+    wCond: 0,
+  },
+  ...[2, 3, 4, 6].map((c) => ({ ...defaultState(), wCond: c, wTemp: c * 5 })),
+  { ...defaultState(), wTemp: 0, wCond: 1, wHi: 0, wLo: 0 },
+);
 const TICKS = [0, 1, 2, 5];
 
 function cString(s) {
@@ -288,7 +368,9 @@ function stateC(st) {
     `.link_connected = ${st.linkConnected}, .rssi_link = ${st.rssiLink}, ` +
     `.rssi_host = ${st.rssiHost}, .layer_index = ${st.layerIndex}, ` +
     `.layer_label = ${cString(st.layerLabel)}, .wpm = {${st.wpm.join(", ")}}, ` +
-    `.utc = ${st.utc}u, .utc_offset_min = ${st.utcOffset}}`
+    `.utc = ${st.utc}u, .utc_offset_min = ${st.utcOffset}, .cpu = ${st.cpu}, ` +
+    `.ram = ${st.ram}, .temp = ${st.temp}, .vol = ${st.vol}, .mute = ${st.mute}, ` +
+    `.w_temp = ${st.wTemp}, .w_hi = ${st.wHi}, .w_lo = ${st.wLo}, .w_cond = ${st.wCond}}`
   );
 }
 

@@ -134,7 +134,7 @@ static void draw_bitmap(struct ctx *c, const struct dd_bitmap *bmp, int x, int y
 /* ------------------------------------------------------------------------- */
 /* Parts: a widget is a vertical stack of parts for a given scale. */
 
-enum part_type { P_TEXT, P_ICON, P_BATTERY, P_PROFILE, P_BARS, P_ICONTEXT };
+enum part_type { P_TEXT, P_ICON, P_BATTERY, P_PROFILE, P_BARS, P_ICONTEXT, P_GAUGE };
 
 #define TEXT_MAX 24
 #define MAX_PARTS 6
@@ -220,6 +220,17 @@ static struct part bars_part(int rssi, int s) {
     return (struct part){.type = P_BARS, .s = s, .level = rssi_bars(rssi), .w = 11 * s, .h = 8 * s};
 }
 
+/* a horizontal gauge over the whole slot width, `level` percent filled */
+static struct part gauge_part(int level, bool unknown, int s, int w) {
+    return (struct part){
+        .type = P_GAUGE, .s = s, .level = level, .unknown = unknown, .w = w, .h = 3 * s + 3};
+}
+
+static const struct dd_bitmap *const weather_icons[DD_WEATHER_ICONS] = {
+    &dd_icon_weather_clear, &dd_icon_weather_partly, &dd_icon_weather_cloud, &dd_icon_weather_fog,
+    &dd_icon_weather_rain,  &dd_icon_weather_snow,   &dd_icon_weather_storm,
+};
+
 static struct part profile_part(int s) {
     int d = 2 * (6 * s) + 1;
     return (struct part){.type = P_PROFILE, .s = s, .w = d, .h = d};
@@ -262,6 +273,14 @@ static void draw_part(struct ctx *c, const struct part *p, const struct dd_state
     case P_ICONTEXT:
         draw_bitmap(c, p->icon, x, y + ((p->h - p->icon->h * s) >> 1), s, false);
         draw_text(c, x + p->icon->w * s + s, y + ((p->h - 8 * s) >> 1), p->text, s, c->fg);
+        break;
+    case P_GAUGE:
+        fill_rect(c, x, y, p->w, p->h, c->fg);
+        fill_rect(c, x + 1, y + 1, p->w - 2, p->h - 2, c->bg);
+        if (!p->unknown) {
+            int fw = ((p->w - 4) * p->level + 50) / 100;
+            fill_rect(c, x + 2, y + 2, fw, p->h - 4, c->fg);
+        }
         break;
     case P_BARS:
         for (int i = 0; i < 4; i++) {
@@ -442,6 +461,80 @@ static int build_parts(const struct dd_layout *layout, const struct dd_slot *sl,
                 snprintf(buf, sizeof(buf), "--:--");
             }
             out[n++] = icontext_part(&dd_icon_sunset, buf, s, sl->w);
+        }
+        break;
+    }
+    case DD_KIND_STAT: {
+        bool unknown;
+        int pct;
+        if (sl->source == DD_METRIC_TEMP) {
+            unknown = st->temp == DD_UNKNOWN_TEMP;
+            if (unknown) {
+                snprintf(buf, sizeof(buf), "--");
+                pct = 0;
+            } else {
+                snprintf(buf, sizeof(buf), "%dC", (int)st->temp);
+                pct = ((st->temp - 20) * 100) / 80;
+                pct = pct < 0 ? 0 : pct > 100 ? 100 : pct;
+            }
+        } else {
+            int v = sl->source == DD_METRIC_CPU   ? st->cpu
+                    : sl->source == DD_METRIC_RAM ? st->ram
+                                                  : st->vol;
+            unknown = v < 0;
+            bool muted = sl->source == DD_METRIC_VOLUME && st->mute && !unknown;
+            if (unknown) {
+                snprintf(buf, sizeof(buf), "--");
+            } else if (muted) {
+                snprintf(buf, sizeof(buf), "MUTE");
+            } else {
+                snprintf(buf, sizeof(buf), "%d%%", v);
+            }
+            pct = unknown || muted ? 0 : v;
+        }
+        static const char *const labels[] = {"CPU", "RAM", "TEMP", "VOL"};
+        const char *label = labels[sl->source < 4 ? sl->source : 0];
+        int small = s >> 1 > 1 ? s >> 1 : 1;
+        struct part value = text_part(buf, s, sl->w);
+        if (sl->style == 1) {
+            out[n++] = value;
+        } else if (sl->style == 2) {
+            out[n++] = value;
+            out[n++] = gauge_part(pct, unknown, s, sl->w);
+        } else if (sl->style == 3) {
+            out[n++] = text_part(label, small, sl->w);
+            out[n++] = value;
+            out[n++] = gauge_part(pct, unknown, s, sl->w);
+        } else {
+            out[n++] = value;
+            out[n++] = text_part(label, small, sl->w);
+        }
+        break;
+    }
+    case DD_KIND_WEATHER: {
+        bool known = st->w_temp != DD_UNKNOWN_TEMP;
+        if (known) {
+            snprintf(buf, sizeof(buf), "%dC", (int)st->w_temp);
+        } else {
+            snprintf(buf, sizeof(buf), "--");
+        }
+        const struct dd_bitmap *icon =
+            st->w_cond >= 0 && st->w_cond < DD_WEATHER_ICONS ? weather_icons[st->w_cond] : NULL;
+        if (sl->style == 1 || (sl->style == 0 && icon == NULL)) {
+            out[n++] = text_part(buf, s, sl->w);
+        } else if (sl->style == 0) {
+            out[n++] = icon_part(icon, s, false);
+            out[n++] = text_part(buf, s, sl->w);
+        } else {
+            char hl[TEXT_MAX];
+            if (st->w_hi != DD_UNKNOWN_TEMP && st->w_lo != DD_UNKNOWN_TEMP) {
+                snprintf(hl, sizeof(hl), "%d/%d", (int)st->w_hi, (int)st->w_lo);
+            } else {
+                snprintf(hl, sizeof(hl), "--");
+            }
+            out[n++] = icon != NULL ? icontext_part(icon, buf, s, sl->w)
+                                    : text_part(buf, s, sl->w);
+            out[n++] = text_part(hl, s >> 1 > 1 ? s >> 1 : 1, sl->w);
         }
         break;
     }

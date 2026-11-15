@@ -5,6 +5,7 @@ import { ICONS } from "./icons.js";
 import { SIN720 } from "./timecalc.js";
 import {
   KINDS,
+  STAT_METRICS,
   DEFAULT_LOCATION,
   timeMode,
   ALIGNS,
@@ -134,7 +135,12 @@ export function genLayout(sideName, design) {
     }
     const kind = "DD_KIND_" + type.toUpperCase();
     const align = Math.max(0, ALIGNS.indexOf(cfg.align || "center"));
-    const source = cfg.source === "peer" ? 1 : 0;
+    const source =
+      type === "stat"
+        ? Math.max(0, STAT_METRICS.indexOf(cfg.metric))
+        : cfg.source === "peer"
+          ? 1
+          : 0;
     table +=
       `    {.x = ${slot.x}, .y = ${slot.y}, .w = ${slot.w}, .h = ${slot.h}, .kind = ${kind}, ` +
       `.scale = ${cfg.scale | 0}, .style = ${cfg.style | 0}, .align = ${align}, ` +

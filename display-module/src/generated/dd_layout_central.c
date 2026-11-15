@@ -4,20 +4,22 @@
 #include "../dd_render.h"
 
 static const struct dd_slot slots[] = {
-    {.x = 0, .y = 0, .w = 34, .h = 46, .kind = DD_KIND_PROFILE, .scale = 0, .style = 0, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* T1 */
-    {.x = 34, .y = 0, .w = 34, .h = 46, .kind = DD_KIND_CONNECTION, .scale = 0, .style = 2, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* T2 */
-    {.x = 0, .y = 46, .w = 68, .h = 68, .kind = DD_KIND_WORDCLOCK, .scale = 0, .style = 0, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* C */
-    {.x = 0, .y = 114, .w = 68, .h = 46, .kind = DD_KIND_BATTERY, .scale = 0, .style = 1, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* B1 */
+    {.x = 0, .y = 0, .w = 34, .h = 27, .kind = DD_KIND_PROFILE, .scale = 0, .style = 0, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* T1 */
+    {.x = 34, .y = 0, .w = 34, .h = 27, .kind = DD_KIND_CONNECTION, .scale = 0, .style = 2, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* T2 */
+    {.x = 0, .y = 27, .w = 34, .h = 28, .kind = DD_KIND_BATTERY, .scale = 0, .style = 1, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* T3 */
+    {.x = 34, .y = 27, .w = 34, .h = 28, .kind = DD_KIND_BATTERY, .scale = 0, .style = 2, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* T4 */
+    {.x = 0, .y = 55, .w = 68, .h = 12, .kind = DD_KIND_DATE, .scale = 0, .style = 1, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* C */
+    {.x = 0, .y = 67, .w = 68, .h = 93, .kind = DD_KIND_CLOCK, .scale = 0, .style = 0, .align = 0, .invert = 0, .source = 0, .frame_count = 0, .frame_div = 0, .text = NULL, .bitmaps = NULL}, /* B1 */
 };
 
 const struct dd_layout dd_layout = {
     .peripheral = false,
     .invert = true,
-    .slot_count = 4,
+    .slot_count = 6,
     .anim_tick_ms = 0,
     .rssi = true,
     .time_mode = 1,
-    .lat_e4 = 525200,
-    .lon_e4 = 134050,
+    .lat_e4 = 519739,
+    .lon_e4 = 76076,
     .slots = slots,
 };

@@ -39,6 +39,8 @@ const TYPE_LABELS = {
   binary: "Binäruhr",
   moon: "Mondphase",
   sun: "Sonnenauf-/untergang",
+  stat: "PC-Werte (CPU, RAM, …)",
+  weather: "Wetter (PC)",
 };
 const MAX_FRAMES = 32;
 const SCALE = 4;
@@ -543,6 +545,48 @@ function slotSection() {
         ),
       );
       break;
+    case "stat":
+      sec.append(
+        row(
+          "Wert",
+          selectEl(
+            [
+              ["cpu", "CPU-Last"],
+              ["ram", "Arbeitsspeicher"],
+              ["temp", "CPU-Temperatur"],
+              ["volume", "Lautstärke"],
+            ],
+            cfg.metric || "cpu",
+            (v) => set({ metric: v }),
+          ),
+        ),
+        styleRow(cfg, set, [
+          [0, "Wert + Name"],
+          [1, "Nur Wert"],
+          [2, "Wert + Balken"],
+          [3, "Name + Wert + Balken"],
+        ]),
+        el(
+          "p",
+          { class: "hint" },
+          "Die Werte kommen vom PC-Helper (pc-helper/). Ohne Daten steht „--“ da. Der Balken nutzt die ganze Slot-Breite.",
+        ),
+      );
+      break;
+    case "weather":
+      sec.append(
+        styleRow(cfg, set, [
+          [0, "Symbol + Temperatur"],
+          [1, "Nur Temperatur"],
+          [2, "Symbol + Temperatur + Hoch/Tief"],
+        ]),
+        el(
+          "p",
+          { class: "hint" },
+          "Das Wetter holt der PC-Helper (Open-Meteo, Standort siehe „Standort“ unten).",
+        ),
+      );
+      break;
     case "layer":
       sec.append(
         row(
@@ -616,6 +660,8 @@ function slotSection() {
       "date",
       "wordclock",
       "sun",
+      "stat",
+      "weather",
     ].includes(cfg.type)
   ) {
     sec.append(
@@ -676,6 +722,8 @@ function changeType(sideId, slot, type) {
     side.slots[slot.id] = { type, source: "self", style: 0, ...keep };
   else if (type === "text")
     side.slots[slot.id] = { type, text: "TEXT", ...keep };
+  else if (type === "stat")
+    side.slots[slot.id] = { type, metric: "cpu", style: 0, ...keep };
   else side.slots[slot.id] = { type, ...keep };
   refresh();
   buildPanel();
@@ -1061,6 +1109,13 @@ function simSection() {
   const rssiLink = rangeEl(-100, -30, sim.rssiLink || -55, (v) =>
     upd({ rssiLink: v }),
   );
+  const cpu = rangeEl(0, 100, sim.cpu, (v) => upd({ cpu: v }));
+  const ram = rangeEl(0, 100, sim.ram, (v) => upd({ ram: v }));
+  const temp = rangeEl(0, 110, sim.temp, (v) => upd({ temp: v }));
+  const vol = rangeEl(0, 100, sim.vol, (v) => upd({ vol: v }));
+  const wTemp = rangeEl(-40, 50, sim.wTemp, (v) => upd({ wTemp: v }));
+  const wHi = rangeEl(-40, 50, sim.wHi, (v) => upd({ wHi: v }));
+  const wLo = rangeEl(-40, 50, sim.wLo, (v) => upd({ wLo: v }));
   sec.append(
     row("Batterie", bat.input, bat.val),
     row(
@@ -1137,6 +1192,34 @@ function simSection() {
       ),
     ),
     row("", rssiLink.input, rssiLink.val),
+    row("CPU", cpu.input, cpu.val),
+    row("RAM", ram.input, ram.val),
+    row("CPU-Temp. (°C)", temp.input, temp.val),
+    row("Lautstärke", vol.input, vol.val),
+    row(
+      "",
+      checkEl("sim-mute", sim.mute, (v) => upd({ mute: v }), "stumm"),
+    ),
+    row(
+      "Wetter",
+      selectEl(
+        [
+          [-1, "unbekannt"],
+          [0, "klar"],
+          [1, "teils bewölkt"],
+          [2, "bewölkt"],
+          [3, "Nebel"],
+          [4, "Regen"],
+          [5, "Schnee"],
+          [6, "Gewitter"],
+        ],
+        sim.wCond,
+        (v) => upd({ wCond: Number(v) }),
+      ),
+    ),
+    row("Temperatur (°C)", wTemp.input, wTemp.val),
+    row("Hoch (°C)", wHi.input, wHi.val),
+    row("Tief (°C)", wLo.input, wLo.val),
     row(
       "Datum / Uhrzeit",
       el("input", {
