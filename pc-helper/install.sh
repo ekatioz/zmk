@@ -6,5 +6,6 @@ cargo build --release
 install -Dm755 target/release/dd-helper "$HOME/.local/bin/dd-helper"
 install -Dm644 dd-helper.service "$HOME/.config/systemd/user/dd-helper.service"
 systemctl --user daemon-reload
-systemctl --user enable --now dd-helper.service
+systemctl --user enable dd-helper.service
+systemctl --user restart dd-helper.service
 echo "dd-helper installed; log: journalctl --user -u dd-helper -f"

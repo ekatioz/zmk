@@ -4,7 +4,8 @@ Documentation=file://%h/Projects/zmk/pc-helper/README.md
 After=bluetooth.target
 
 [Service]
-ExecStart=%h/.local/bin/dd-helper
+EnvironmentFile=-%h/.config/dd-helper.env
+ExecStart=%h/.local/bin/dd-helper $DD_HELPER_ARGS
 Restart=always
 RestartSec=10
 

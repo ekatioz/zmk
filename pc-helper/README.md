@@ -6,8 +6,27 @@ with one write characteristic. `dd-helper` (Rust, one binary) writes messages to
 Bluetooth connection the keyboard already has to the computer. Writes need the paired (encrypted)
 connection, so nothing else can write to it.
 
-At the moment the helper sends the **time** (UTC plus the local offset), which fixes the clock
-widgets after each restart of the keyboard. The left half passes it on to the right half.
+The helper sends
+
+- the **time** (UTC plus the local offset), which fixes the clock widgets after each restart of
+  the keyboard, and again whenever the keyboard reconnects,
+- **CPU load, RAM, CPU temperature and volume/mute** of this computer every 5 s (the volume at
+  once when it changes) for the `stat` widgets,
+- the **weather** (current temperature, condition, today's high/low from
+  [Open-Meteo](https://open-meteo.com), no account needed) every 15 minutes for the `weather`
+  widget.
+
+The left half passes everything on to the right half. Values the keyboard has not heard of for 2
+minutes (weather: 6 hours) show as `--`.
+
+Sources: `/proc/stat`, `/proc/meminfo`, the `k10temp`/`coretemp` hwmon sensor, `wpctl` (PipeWire;
+`pactl` as fallback) and Open-Meteo. The weather needs a location, which is sent to Open-Meteo
+with every request - so it is only used if you give it: `--lat 52.52 --lon 13.405`. For the
+service put the arguments into `~/.config/dd-helper.env`:
+
+```
+DD_HELPER_ARGS="--lat 52.52 --lon 13.405"
+```
 
 ## Install (Linux)
 
@@ -22,12 +41,13 @@ journalctl --user -u dd-helper -f
 Or by hand: `cargo build --release`, then `target/release/dd-helper --once` to try it.
 
 ```
-dd-helper [--once] [--list] [--address ADDR] [--name NAME] [--interval SECS] [--retry SECS]
+dd-helper --help            # all options, e.g. --dry-run to see the values without a keyboard
 ```
 
 The keyboard is found by its Bluetooth name (`--name`, default `Aurora Lily58`) or by `--address`.
-The time is sent at once and then every 10 minutes. If the keyboard is not connected, the helper
-waits until it is. `--list` shows what BlueZ knows.
+Everything is sent at once and whenever the keyboard reconnects. If the keyboard is not connected,
+the helper waits until it is. `--list` shows what BlueZ knows, `--dry-run` prints the messages
+without sending them.
 
 The helper talks to BlueZ over D-Bus and writes into the connection that exists anyway. It never
 connects or disconnects: a library that connects and disconnects (e.g. bleak) drops the keyboard's
@@ -44,5 +64,10 @@ connection to the computer on exit, and typing stops for a few seconds.
 ## Protocol
 
 One write = one message: a byte id followed by up to 31 bytes. Ids are in
-`display-module/src/dd_host.h`; `1` is the time: `uint32` UTC seconds, `int16` offset in minutes,
-both little endian.
+`display-module/src/dd_host.h`:
+
+| id | message | data |
+| -- | ------- | ---- |
+| 1 | time | `uint32` UTC seconds, `int16` offset in minutes, little endian |
+| 2 | stats | cpu %, ram %, volume % (`255` = unknown), CPU temperature in C (`int8`, `-128` = unknown), muted |
+| 3 | weather | temperature in C (`int8`, `-128` = unknown), condition (0 clear, 1 partly cloudy, 2 cloudy, 3 fog, 4 rain, 5 snow, 6 thunderstorm), high, low |
