@@ -1,0 +1,8 @@
+[package]
+name = "dd-helper"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+zbus = "5"

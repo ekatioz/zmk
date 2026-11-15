@@ -1,0 +1,12 @@
+[Unit]
+Description=Keyboard display helper
+Documentation=file://%h/Projects/zmk/pc-helper/README.md
+After=bluetooth.target
+
+[Service]
+ExecStart=%h/.local/bin/dd-helper
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

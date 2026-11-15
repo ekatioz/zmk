@@ -6,6 +6,7 @@ if(CONFIG_DISPLAY_DESIGNER AND CONFIG_ZMK_DISPLAY)
   zephyr_library_sources(
     src/dd_render.c
     src/dd_link.c
+    src/dd_host.c
     src/dd_time.c
     src/dd_timecalc.c
     src/dd_screen.c

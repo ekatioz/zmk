@@ -46,6 +46,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/split/bluetooth/peripheral.h>
 #endif
 
+#include "dd_host.h"
 #include "dd_link.h"
 #include "dd_render.h"
 #include "dd_time.h"
@@ -417,6 +418,20 @@ static void send_time(void) {
 
     dd_link_send(DD_LINK_MSG_TIME, msg, sizeof(msg));
 }
+
+/* A message from the helper program on the PC (runs on the display work queue). */
+static void host_message_cb(uint8_t id, const uint8_t *data, uint8_t len) {
+    if (id == DD_HOST_MSG_TIME && len >= 6) {
+        dd_time_set((uint32_t)data[0] | (uint32_t)data[1] << 8 | (uint32_t)data[2] << 16 |
+                        (uint32_t)data[3] << 24,
+                    (int16_t)((uint16_t)data[4] | (uint16_t)data[5] << 8));
+        send_time(); /* the right half learns the new time as well */
+        if (k_work_delayable_is_pending(&time_work)) {
+            time_work_schedule(); /* the full minute/second moved */
+        }
+        redraw();
+    }
+}
 #endif
 
 /* --- Animation ----------------------------------------------------------- */
@@ -483,6 +498,7 @@ lv_obj_t *zmk_display_status_screen() {
     dd_layer_init();
     dd_wpm_init();
     dd_link_set_connect_cb(send_time);
+    dd_host_set_handler(host_message_cb);
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_BLE_CENTRAL_BATTERY_LEVEL_FETCHING)
     dd_peer_battery_init();
 #endif
