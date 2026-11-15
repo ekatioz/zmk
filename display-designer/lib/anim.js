@@ -161,6 +161,44 @@ export const GENERATORS = {
         }
       }),
   },
+  fire: {
+    label: "Feuer",
+    frames: 12,
+    fps: 4,
+    make: (w, h, n) => {
+      // The classic "fire" heat simulation: a hot, flickering bottom row; every row above is a
+      // bit cooler and drifts sideways at random. A noisy threshold turns heat into flame
+      // tongues with a ragged, sparkling edge.
+      const rand = rng(2024);
+      const heat = new Uint8Array(w * h);
+      const decay = 255 / (0.6 * h);
+      const step = () => {
+        for (let x = 0; x < w; x++) {
+          // a few cold gaps at the bottom make separate tongues
+          heat[(h - 1) * w + x] =
+            rand() < 0.15 ? 90 : 210 + Math.floor(rand() * 46);
+        }
+        for (let y = 0; y < h - 1; y++) {
+          for (let x = 0; x < w; x++) {
+            const sx = Math.min(
+              w - 1,
+              Math.max(0, x + Math.floor(rand() * 3) - 1),
+            );
+            const v = heat[(y + 1) * w + sx];
+            heat[y * w + x] = Math.max(0, v - Math.floor(rand() * 2 * decay));
+          }
+        }
+      };
+      for (let i = 0; i < h * 2; i++) step(); // let the flames build up
+      const noise = rng(7);
+      return frames(n, w, h, (fb) => {
+        step();
+        for (let y = 0; y < h; y++)
+          for (let x = 0; x < w; x++)
+            if (heat[y * w + x] > 60 + noise() * 100) fb.set(x, y, 1);
+      });
+    },
+  },
   matrix: {
     label: "Matrix (Zeichenregen)",
     frames: 24,
