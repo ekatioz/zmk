@@ -9,8 +9,12 @@ display-designer/serve.py          # opens http://127.0.0.1:8765
 ```
 
 Click a slot, pick a widget, tweak it, press **In Repo speichern** (Ctrl+S). That writes
-`layout.json` (the design) and the generated C sources in `display-module/src/generated/`. Then
-build as usual:
+`layout.json` (the design) and the generated C sources in `display-module/src/generated/`.
+
+**Speichern & bauen** saves and then runs `../build-lily58.sh -p` (both halves, pristine). The
+build log streams into the page and the `.uf2` paths are shown at the end. Only one build runs at a
+time; the server accepts nothing but that fixed command. For anything else (one half, incremental)
+run the script by hand:
 
 ```sh
 ./build-lily58.sh -p

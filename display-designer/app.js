@@ -1291,12 +1291,16 @@ function applyDesign(d, { dirtyAfter = false } = {}) {
 }
 
 async function save() {
+  return saveDesign();
+}
+
+async function saveDesign() {
   let files;
   try {
     files = genAll(design);
   } catch (e) {
     setStatus("Fehler: " + e.message, "err");
-    return;
+    return false;
   }
   try {
     const res = await fetch("/api/save", {
@@ -1307,13 +1311,89 @@ async function save() {
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || res.statusText);
     dirty = false;
-    setStatus("Gespeichert – jetzt ./build-lily58.sh ausführen", "ok");
+    setStatus(
+      "Gespeichert – mit „Speichern & bauen“ oder ./build-lily58.sh bauen",
+      "ok",
+    );
+    return true;
   } catch (e) {
     setStatus(
       "Speichern fehlgeschlagen: " + e.message + " (läuft serve.py?)",
       "err",
     );
+    return false;
   }
+}
+
+// --- firmware build (serve.py runs ./build-lily58.sh, we poll its log) ---
+let buildPoll = null;
+let buildNext = 0;
+
+function buildUi(running, text) {
+  $("#buildbox").hidden = false;
+  $("#build-state").textContent = text;
+  $("#build-cancel").hidden = !running;
+  $("#btn-build").disabled = running;
+}
+
+function appendLog(lines) {
+  if (!lines.length) return;
+  const log = $("#build-log");
+  const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 20;
+  log.textContent += lines.join("\n") + "\n";
+  if (atEnd) log.scrollTop = log.scrollHeight;
+}
+
+async function pollBuild() {
+  try {
+    const res = await fetch("/api/build?since=" + buildNext);
+    const b = await res.json();
+    appendLog(b.lines);
+    buildNext = b.next;
+    if (b.running) {
+      buildUi(true, "läuft …");
+      buildPoll = setTimeout(pollBuild, 700);
+      return;
+    }
+    buildPoll = null;
+    const box = $("#build-files");
+    if (b.exit_code === 0) {
+      buildUi(false, "– fertig");
+      box.replaceChildren(
+        "Firmware: ",
+        ...b.files.flatMap((f) => [el("code", {}, f), el("br")]),
+      );
+      setStatus("Build fertig", "ok");
+    } else {
+      buildUi(false, "– fehlgeschlagen (Exit " + b.exit_code + ")");
+      setStatus("Build fehlgeschlagen", "err");
+    }
+  } catch (e) {
+    buildPoll = setTimeout(pollBuild, 2000);
+  }
+}
+
+async function startBuild() {
+  if (!(await saveDesign())) return;
+  try {
+    const res = await fetch("/api/build", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+  } catch (e) {
+    setStatus("Build konnte nicht starten: " + e.message, "err");
+    return;
+  }
+  $("#build-log").textContent = "";
+  $("#build-files").textContent = "";
+  buildNext = 0;
+  buildUi(true, "läuft …");
+  setStatus("Build läuft …");
+  clearTimeout(buildPoll);
+  pollBuild();
 }
 
 function download() {
@@ -1327,6 +1407,22 @@ function download() {
 }
 
 $("#btn-save").addEventListener("click", save);
+$("#btn-build").addEventListener("click", startBuild);
+$("#build-cancel").addEventListener("click", () =>
+  fetch("/api/build/cancel", { method: "POST" }),
+);
+// pick up a build that is already running (e.g. after a page reload)
+fetch("/api/build?since=0")
+  .then((r) => r.json())
+  .then((b) => {
+    if (b.running) {
+      appendLog(b.lines);
+      buildNext = b.next;
+      buildUi(true, "läuft …");
+      pollBuild();
+    }
+  })
+  .catch(() => {});
 $("#btn-download").addEventListener("click", download);
 $("#btn-load").addEventListener("click", () => $("#file-load").click());
 $("#file-load").addEventListener("change", async (e) => {

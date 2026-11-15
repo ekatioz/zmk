@@ -245,6 +245,22 @@
       input[type="datetime-local"] {
         width: 100%;
       }
+      #build-log {
+        max-height: 320px;
+        overflow: auto;
+        margin: 8px 0 0;
+        padding: 8px;
+        background: var(--bg);
+        border-radius: 6px;
+        font:
+          12px/1.35 ui-monospace,
+          monospace;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      #build-files code {
+        user-select: all;
+      }
     </style>
   </head>
   <body>
@@ -252,6 +268,9 @@
       <h1>Display Designer</h1>
       <button id="btn-save" class="primary" title="Ctrl+S">
         In Repo speichern
+      </button>
+      <button id="btn-build" title="Speichert und startet ./build-lily58.sh -p">
+        Speichern &amp; bauen
       </button>
       <button id="btn-download">layout.json herunterladen</button>
       <button id="btn-load">layout.json öffnen…</button>
@@ -273,6 +292,16 @@
     <main>
       <div>
         <div class="previews" id="previews"></div>
+        <section id="buildbox" hidden style="margin-top: 16px">
+          <h3>
+            Build <span id="build-state"></span>
+            <button id="build-cancel" hidden style="float: right">
+              Abbrechen
+            </button>
+          </h3>
+          <div id="build-files" class="hint"></div>
+          <pre id="build-log"></pre>
+        </section>
         <p class="hint" style="text-align: center">
           Slot anklicken zum Bearbeiten. Die Vorschau ist pixelgenau dieselbe
           Zeichnung wie auf dem Gerät.

@@ -2,7 +2,8 @@
 """Local server for the display designer.
 
 Serves this directory and lets the page write the design (layout.json) and the generated
-firmware sources (../display-module/src/generated/) back into the repository.
+firmware sources (../display-module/src/generated/) back into the repository, and start
+../build-lily58.sh (`-p`, both halves; one build at a time).
 
     ./serve.py [--port 8765] [--no-open]
 
@@ -26,6 +27,76 @@ LAYOUT = HERE / "layout.json"
 GENERATED = (HERE / ".." / "display-module" / "src" / "generated").resolve()
 ALLOWED_FILES = {"dd_assets.c", "dd_layout_central.c", "dd_layout_peripheral.c"}
 MAX_BODY = 16 * 1024 * 1024
+BUILD_SCRIPT = (HERE / ".." / "build-lily58.sh").resolve()
+
+
+class Build:
+    """One firmware build at a time, started from the page; the log is polled by offset."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.running = False
+        self.lines: list[str] = []
+        self.exit_code = None
+        self.files: list[str] = []
+        self.proc = None
+
+    def start(self):
+        with self.lock:
+            if self.running:
+                return False
+            self.running = True
+            self.lines = []
+            self.exit_code = None
+            self.files = []
+        threading.Thread(target=self._run, daemon=True).start()
+        return True
+
+    def _run(self):
+        cmd = [str(BUILD_SCRIPT), "-p"]
+        code = -1
+        try:
+            self.proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                errors="replace",
+                cwd=str(BUILD_SCRIPT.parent),
+                start_new_session=True,
+            )
+            for line in self.proc.stdout:
+                with self.lock:
+                    self.lines.append(line.rstrip("\n"))
+            code = self.proc.wait()
+        except OSError as e:
+            with self.lock:
+                self.lines.append(f"build could not be started: {e}")
+        with self.lock:
+            self.exit_code = code
+            if code == 0:
+                app = BUILD_SCRIPT.parent / "app" / "build"
+                self.files = [str(app / s / "zephyr" / "zmk.uf2") for s in ("left", "right")]
+            self.running = False
+
+    def cancel(self):
+        proc = self.proc
+        if self.running and proc and proc.poll() is None:
+            os.killpg(proc.pid, 15)
+
+    def snapshot(self, since):
+        with self.lock:
+            return {
+                "running": self.running,
+                "exit_code": self.exit_code,
+                "files": self.files,
+                "next": len(self.lines),
+                "lines": self.lines[since:],
+            }
+
+
+BUILD = Build()
 
 
 def write_atomic(path: Path, text: str) -> None:
@@ -80,6 +151,16 @@ class Handler(SimpleHTTPRequestHandler):
             if not LAYOUT.exists():
                 return self._json(404, {"error": "no layout.json yet"})
             return self._json(200, json.loads(LAYOUT.read_text(encoding="utf-8")))
+        if self.path.startswith("/api/build"):
+            if not self._same_origin():
+                return self._json(403, {"error": "forbidden"})
+            since = 0
+            if "?since=" in self.path:
+                try:
+                    since = max(0, int(self.path.split("?since=", 1)[1]))
+                except ValueError:
+                    pass
+            return self._json(200, BUILD.snapshot(since))
         if self.path == "/favicon.ico":
             self.send_response(204)  # no icon, and no 404 in the log
             self.end_headers()
@@ -88,7 +169,31 @@ class Handler(SimpleHTTPRequestHandler):
             self.path = "/index.html"
         return super().do_GET()
 
+    def _read_json(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            return None
+        if length <= 0 or length > MAX_BODY:
+            return None
+        try:
+            return json.loads(self.rfile.read(length))
+        except ValueError:
+            return None
+
+    def _post_build(self):
+        if not self._same_origin():
+            return self._json(403, {"error": "forbidden"})
+        if self.path == "/api/build/cancel":
+            BUILD.cancel()
+            return self._json(200, {"ok": True})
+        if not BUILD.start():
+            return self._json(409, {"error": "a build is already running"})
+        self._json(200, {"ok": True})
+
     def do_POST(self):
+        if self.path in ("/api/build", "/api/build/cancel"):
+            return self._post_build()
         if self.path != "/api/save":
             return self._json(404, {"error": "not found"})
         if not self._same_origin():
