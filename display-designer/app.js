@@ -190,11 +190,22 @@ function currentState() {
 }
 
 function drawPreviews() {
-  const st = currentState();
+  const stCentral = currentState();
+  // The right half shows its own battery, which the simulator holds as "Batterie rechts".
+  const stPeripheral = {
+    ...stCentral,
+    battery: stCentral.peerBattery < 0 ? 0 : stCentral.peerBattery,
+  };
   const ink = design.invert ? [0xdf, 0xe3, 0xd8] : [0x17, 0x19, 0x1c];
   const paper = design.invert ? [0x17, 0x19, 0x1c] : [0xdf, 0xe3, 0xd8];
   for (const { id } of SIDES) {
-    const fb = renderSide(id, sideCfg(id), st, ticks[id], design.location);
+    const fb = renderSide(
+      id,
+      sideCfg(id),
+      id === "peripheral" ? stPeripheral : stCentral,
+      ticks[id],
+      design.location,
+    );
     const img = new ImageData(W, H);
     for (let i = 0; i < W * H; i++) {
       const c = fb.px[i] ? ink : paper;
@@ -1056,7 +1067,7 @@ function simSection() {
       "Lädt (USB)",
       checkEl("sim-chg", sim.charging, (v) => upd({ charging: v }), ""),
     ),
-    row("Andere Hälfte", peer.input, peer.val),
+    row("Batterie rechts", peer.input, peer.val),
     row(
       "",
       checkEl(
