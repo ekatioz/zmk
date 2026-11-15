@@ -54,8 +54,15 @@ extra_args=(
     -DCONFIG_DISPLAY_DESIGNER=y
     -DCONFIG_NICE_VIEW_WIDGET_STATUS=n
 )
+# The keyboard has no real-time clock; its clock starts at the time of this build until a helper
+# program (or the left half) sets it. Passing the time on every build keeps it current.
+tz="$(date +%z)"
+tz_minutes=$((10#${tz:1:2} * 60 + 10#${tz:3:2}))
+[ "${tz:0:1}" = "-" ] && tz_minutes=$((-tz_minutes))
+time_args=(-DDD_BUILD_EPOCH="$(date +%s)" -DDD_BUILD_UTC_OFFSET_MIN="$tz_minutes")
 if [ "$stock" -eq 1 ]; then
     extra_args=()
+    time_args=()
 fi
 
 outputs=()
@@ -63,10 +70,15 @@ for side in "${sides[@]}"; do
     echo "==> Building $side half"
     if [ "$pristine" -eq 0 ] && [ -f "build/$side/zephyr/zmk.uf2" ]; then
         # Incremental rebuild; board and shield arguments are cached in the build directory.
-        west build -d "build/$side"
+        if [ "${#time_args[@]}" -gt 0 ]; then
+            west build -d "build/$side" -- "${time_args[@]}"
+        else
+            west build -d "build/$side"
+        fi
     else
         west build -p always -d "build/$side" -b "$BOARD" -- \
-            -DSHIELD="${SHIELD}_${side} ${EXTRA_SHIELDS}" "${extra_args[@]}"
+            -DSHIELD="${SHIELD}_${side} ${EXTRA_SHIELDS}" "${extra_args[@]}" \
+            ${time_args[@]+"${time_args[@]}"}
     fi
     outputs+=("$app_dir/build/$side/zephyr/zmk.uf2")
 done

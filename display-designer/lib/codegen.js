@@ -2,8 +2,11 @@
 
 import { FONT8 } from "./font8.js";
 import { ICONS } from "./icons.js";
+import { SIN720 } from "./timecalc.js";
 import {
   KINDS,
+  DEFAULT_LOCATION,
+  timeMode,
   ALIGNS,
   computeSlots,
   animTiming,
@@ -49,6 +52,10 @@ export function genAssets() {
   FONT8.forEach((rows, i) => {
     out += `    {${rows.map(hex).join(", ")}}, /* U+${(0x20 + i).toString(16).toUpperCase().padStart(4, "0")} */\n`;
   });
+  out += "};\n\n";
+  out += "const int16_t dd_sin720[720] = {\n";
+  for (let i = 0; i < SIN720.length; i += 12)
+    out += "    " + SIN720.slice(i, i + 12).join(", ") + ",\n";
   out += "};\n\n";
   for (const [name, ic] of Object.entries(ICONS)) {
     out += `static const uint8_t icon_${name}_bits[] = {\n${bytesToC(ic.bits)}\n};\n`;
@@ -154,6 +161,10 @@ export function genLayout(sideName, design) {
   out += `    .slot_count = ${slots.length},\n`;
   out += `    .anim_tick_ms = ${timing.tickMs},\n`;
   out += `    .rssi = ${rssi ? "true" : "false"},\n`;
+  const loc = design.location ?? DEFAULT_LOCATION;
+  out += `    .time_mode = ${timeMode(side)},\n`;
+  out += `    .lat_e4 = ${Math.round(loc.lat * 1e4)},\n`;
+  out += `    .lon_e4 = ${Math.round(loc.lon * 1e4)},\n`;
   out += `    .slots = slots,\n};\n`;
   return out;
 }

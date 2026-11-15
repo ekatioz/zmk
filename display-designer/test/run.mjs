@@ -81,6 +81,66 @@ const designs = {
       },
     ),
   },
+  time_a: {
+    side: "central",
+    cfg: side(
+      { count: 4, height: 46 },
+      { count: 4, height: 50 },
+      {
+        T1: { type: "clock", style: 0 },
+        T2: { type: "clock", style: 2 },
+        T3: { type: "date", style: 0 },
+        T4: { type: "date", style: 4 },
+        C: { type: "analog", style: 1 },
+        B1: { type: "binary", style: 1 },
+        B2: { type: "binary", style: 0 },
+        B3: { type: "moon", style: 1 },
+        B4: { type: "sun", style: 0 },
+      },
+    ),
+  },
+  time_b: {
+    side: "central",
+    cfg: side(
+      { count: 2, height: 60 },
+      { count: 4, height: 30 },
+      {
+        T1: { type: "wordclock", style: 1 },
+        T2: { type: "wordclock", style: 0, invert: true },
+        C: { type: "moon", style: 0 },
+        B1: { type: "date", style: 1 },
+        B2: { type: "date", style: 2 },
+        B3: { type: "date", style: 3 },
+        B4: { type: "sun", style: 1 },
+      },
+    ),
+  },
+  time_c: {
+    side: "peripheral",
+    cfg: side(
+      { count: 2, height: 40 },
+      { count: 1, height: 40 },
+      {
+        T1: { type: "clock", style: 1, align: "left" },
+        T2: { type: "sun", style: 2, align: "right" },
+        C: { type: "analog", style: 0, invert: true },
+        B1: { type: "binary", style: 0 },
+      },
+    ),
+  },
+  time_polar: {
+    side: "central",
+    location: { lat: 78.22, lon: 15.65 },
+    cfg: side(
+      { count: 1, height: 50 },
+      { count: 1, height: 50 },
+      {
+        T1: { type: "sun", style: 0 },
+        C: { type: "clock", style: 1 },
+        B1: { type: "moon", style: 1 },
+      },
+    ),
+  },
   central_big: {
     side: "central",
     cfg: side(
@@ -147,7 +207,7 @@ const designs = {
           frames: generate("spinner", 30, 20, 3),
           period: 250,
         },
-        B4: { type: "connection", style: 1, invert: true },
+        B4: { type: "profile", invert: true },
       },
     ),
   },
@@ -200,6 +260,20 @@ const states = [
     wpm: mkWpm((i) => (i === WPM_HIST - 1 ? 188 : 0)),
   },
 ];
+const utcOf = (...a) => Date.UTC(a[0], a[1] - 1, ...a.slice(2)) / 1000;
+states.push(
+  // new year's eve, one hour east of UTC: 2025-01-01 00:59:58 local
+  {
+    ...defaultState(),
+    utc: utcOf(2024, 12, 31, 23, 59, 58),
+    utcOffset: 60,
+  },
+  // ISO week 53 of 2020 ends on a Sunday in 2021
+  { ...defaultState(), utc: utcOf(2021, 1, 3, 13, 30, 0), utcOffset: 60 },
+  // "EIN UHR" (13:00 local), winter solstice, negative offset
+  { ...defaultState(), utc: utcOf(2024, 12, 21, 18, 0, 10), utcOffset: -300 },
+  { ...defaultState(), utc: utcOf(2025, 11, 14, 6, 15, 5), utcOffset: 60 },
+);
 const TICKS = [0, 1, 2, 5];
 
 function cString(s) {
@@ -213,7 +287,8 @@ function stateC(st) {
     `.profile_connected = ${st.profileConnected}, .profile_bonded = ${st.profileBonded}, ` +
     `.link_connected = ${st.linkConnected}, .rssi_link = ${st.rssiLink}, ` +
     `.rssi_host = ${st.rssiHost}, .layer_index = ${st.layerIndex}, ` +
-    `.layer_label = ${cString(st.layerLabel)}, .wpm = {${st.wpm.join(", ")}}}`
+    `.layer_label = ${cString(st.layerLabel)}, .wpm = {${st.wpm.join(", ")}}, ` +
+    `.utc = ${st.utc}u, .utc_offset_min = ${st.utcOffset}}`
   );
 }
 
@@ -250,8 +325,14 @@ writeFileSync(
 writeFileSync(join(tmp, "harness.c"), harness);
 
 let failed = 0;
-for (const [name, { side: sideName, cfg }] of Object.entries(designs)) {
-  const design = { invert: false, sides: { central: cfg, peripheral: cfg } };
+for (const [name, { side: sideName, cfg, location }] of Object.entries(
+  designs,
+)) {
+  const design = {
+    invert: false,
+    location,
+    sides: { central: cfg, peripheral: cfg },
+  };
   writeFileSync(
     join(tmp, `layout_${name}.c`),
     genLayout(sideName, design).replace('"../dd_render.h"', '"dd_render.h"'),
@@ -269,9 +350,11 @@ for (const [name, { side: sideName, cfg }] of Object.entries(designs)) {
       "-o",
       exe,
       join(modSrc, "dd_render.c"),
+      join(modSrc, "dd_timecalc.c"),
       join(tmp, "dd_assets.c"),
       join(tmp, `layout_${name}.c`),
       join(tmp, "harness.c"),
+      "-lm",
     ],
     { stdio: "inherit" },
   );
@@ -282,7 +365,7 @@ for (const [name, { side: sideName, cfg }] of Object.entries(designs)) {
     for (const t of TICKS) {
       jsOut +=
         `== state ${si} tick ${t}\n` +
-        toAscii(renderSide(sideName, cfg, st, t)) +
+        toAscii(renderSide(sideName, cfg, st, t, location)) +
         "\n";
     }
   });

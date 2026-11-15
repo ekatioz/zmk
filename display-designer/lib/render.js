@@ -6,6 +6,17 @@
 
 import { FONT8 } from "./font8.js";
 import { ICONS } from "./icons.js";
+import {
+  SIN720,
+  rdiv,
+  isqrt,
+  datetimeFrom,
+  moonPhase,
+  sunTimes,
+  SUN_OK,
+  WEEKDAYS,
+  wordClock,
+} from "./timecalc.js";
 
 export const W = 68;
 export const H = 160;
@@ -24,7 +35,17 @@ export const KINDS = [
   "text",
   "image",
   "anim",
+  "clock",
+  "date",
+  "analog",
+  "wordclock",
+  "binary",
+  "moon",
+  "sun",
 ];
+
+// Where the sun times are computed for unless the design says otherwise (Berlin).
+export const DEFAULT_LOCATION = { lat: 52.52, lon: 13.405 };
 export const ALIGNS = ["center", "left", "right"];
 
 export function defaultState() {
@@ -39,6 +60,8 @@ export function defaultState() {
     linkConnected: true, // peripheral: link to central
     rssiLink: -55, // dBm, 0 = unknown. peripheral: to the central; central: to the other half
     rssiHost: -65, // dBm, 0 = unknown. central: to the host (PC)
+    utc: 1750507653, // seconds since 1970, 2025-06-21 12:07:33 UTC
+    utcOffset: 120, // local time minus UTC in minutes
     layerIndex: 0,
     layerLabel: "BASE",
     wpm: new Array(WPM_HIST).fill(0),
@@ -337,6 +360,10 @@ function wpmGraph(ctx, slot, state, withNumber) {
 
 // ---------------------------------------------------------------------------
 
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
 function layerText(state) {
   return state.layerLabel && state.layerLabel.length
     ? state.layerLabel
@@ -410,6 +437,80 @@ function partsFor(cfg, slot, state) {
         return parts;
       };
     }
+    case "clock": {
+      const style = cfg.style | 0; // 0 HH over MM, 1 HH:MM, 2 HH:MM:SS
+      const dt = datetimeFrom(state.utc, state.utcOffset);
+      const hh = pad2(dt.hour);
+      const mm = pad2(dt.minute);
+      return (s) => {
+        if (style === 0)
+          return [textPart(hh, s, slot.w), textPart(mm, s, slot.w)];
+        const str =
+          style === 1 ? `${hh}:${mm}` : `${hh}:${mm}:${pad2(dt.second)}`;
+        return [textPart(str, s, slot.w)];
+      };
+    }
+    case "date": {
+      // 0 DD.MM.  1 MO DD.MM  2 DD.MM.YY  3 KW 25  4 weekday, date and week stacked
+      const style = cfg.style | 0;
+      const dt = datetimeFrom(state.utc, state.utcOffset);
+      const wd = WEEKDAYS[dt.weekday - 1];
+      const dm = `${pad2(dt.day)}.${pad2(dt.month)}.`;
+      const kw = `KW ${pad2(dt.week)}`;
+      return (s) => {
+        switch (style) {
+          case 1:
+            return [textPart(`${wd} ${dm.slice(0, 5)}`, s, slot.w)];
+          case 2:
+            return [textPart(`${dm}${pad2(dt.year % 100)}`, s, slot.w)];
+          case 3:
+            return [textPart(kw, s, slot.w)];
+          case 4:
+            return [
+              textPart(wd, s, slot.w),
+              textPart(dm, s, slot.w),
+              textPart(kw, s, slot.w),
+            ];
+          default:
+            return [textPart(dm, s, slot.w)];
+        }
+      };
+    }
+    case "wordclock": {
+      const dt = datetimeFrom(state.utc, state.utcOffset);
+      const lines = wordClock(dt.hour, dt.minute, (cfg.style | 0) === 1);
+      return (s) => lines.map((l) => textPart(l, s, slot.w));
+    }
+    case "sun": {
+      const style = cfg.style | 0; // 0 sunrise and sunset, 1 sunrise, 2 sunset
+      const loc = cfg.loc ?? DEFAULT_LOCATION;
+      const t = sunTimes(
+        state.utc,
+        state.utcOffset,
+        Math.round(loc.lat * 1e4),
+        Math.round(loc.lon * 1e4),
+      );
+      const fmt = (m) =>
+        t.status === SUN_OK
+          ? `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`
+          : "--:--";
+      return (s) => {
+        const out = [];
+        if (style !== 2)
+          out.push(
+            rowPart(
+              iconPart("sunrise", s),
+              textPart(fmt(t.rise), s, slot.w),
+              s,
+            ),
+          );
+        if (style !== 1)
+          out.push(
+            rowPart(iconPart("sunset", s), textPart(fmt(t.set), s, slot.w), s),
+          );
+        return out;
+      };
+    }
     case "profile":
       return (s) => [profilePart(state, s)];
     case "layer": {
@@ -451,6 +552,116 @@ function chooseScale(parts, slot, requested) {
     if (tw <= slot.w && th <= slot.h) return s;
   }
   return 1;
+}
+
+function handEnd(cx, cy, len, idx) {
+  return [
+    cx + rdiv(len * SIN720[idx], 1000),
+    cy - rdiv(len * SIN720[(idx + 180) % 720], 1000),
+  ];
+}
+
+function drawAnalog(ctx, slot, state, withSeconds) {
+  const { fb, fg } = ctx;
+  const dt = datetimeFrom(state.utc, state.utcOffset);
+  const cx = slot.x + (slot.w >> 1);
+  const cy = slot.y + (slot.h >> 1);
+  const R = (Math.min(slot.w, slot.h) >> 1) - 1;
+  if (R < 6) return;
+  fb.circle(cx, cy, R, fg, false, false);
+  for (let i = 0; i < 12; i++) {
+    const len = i % 3 === 0 ? 4 : 2;
+    const a = handEnd(cx, cy, R - len, i * 60);
+    const b = handEnd(cx, cy, R - 1, i * 60);
+    fb.line(a[0], a[1], b[0], b[1], fg);
+  }
+  const hourEnd = handEnd(
+    cx,
+    cy,
+    Math.floor((R * 5) / 10),
+    (dt.hour % 12) * 60 + dt.minute,
+  );
+  fb.line(cx, cy, hourEnd[0], hourEnd[1], fg);
+  fb.line(cx + 1, cy, hourEnd[0] + 1, hourEnd[1], fg);
+  const minEnd = handEnd(
+    cx,
+    cy,
+    Math.floor((R * 8) / 10),
+    Math.floor((dt.minute * 60 + dt.second) / 5),
+  );
+  fb.line(cx, cy, minEnd[0], minEnd[1], fg);
+  if (withSeconds) {
+    const secEnd = handEnd(cx, cy, Math.floor((R * 9) / 10), dt.second * 12);
+    fb.line(cx, cy, secEnd[0], secEnd[1], fg);
+  }
+  fb.circle(cx, cy, 2, fg, true, false);
+}
+
+function drawBinary(ctx, slot, state, withSeconds) {
+  const { fb, fg } = ctx;
+  const dt = datetimeFrom(state.utc, state.utcOffset);
+  const digits = [
+    Math.floor(dt.hour / 10),
+    dt.hour % 10,
+    Math.floor(dt.minute / 10),
+    dt.minute % 10,
+  ];
+  const bits = [2, 4, 3, 4];
+  if (withSeconds) {
+    digits.push(Math.floor(dt.second / 10), dt.second % 10);
+    bits.push(3, 4);
+  }
+  const n = digits.length;
+  const cs = Math.min(Math.floor(slot.w / n), Math.floor(slot.h / 4));
+  if (cs < 3) return;
+  const x0 = slot.x + ((slot.w - cs * n) >> 1);
+  const y0 = slot.y + ((slot.h - cs * 4) >> 1);
+  const r = Math.max(1, ((cs - 1) >> 1) - 1);
+  for (let col = 0; col < n; col++) {
+    for (let row = 0; row < 4; row++) {
+      const bit = 3 - row;
+      if (bit >= bits[col]) continue;
+      fb.circle(
+        x0 + col * cs + (cs >> 1),
+        y0 + row * cs + (cs >> 1),
+        r,
+        fg,
+        ((digits[col] >> bit) & 1) === 1,
+        false,
+      );
+    }
+  }
+}
+
+function drawMoon(ctx, slot, state, showPercent) {
+  const { fb, fg } = ctx;
+  const reserve = showPercent ? 10 : 0;
+  const R = (Math.min(slot.w, slot.h - reserve) >> 1) - 1;
+  if (R < 3) return;
+  const cx = slot.x + (slot.w >> 1);
+  const cy = slot.y + ((slot.h - reserve) >> 1);
+  const p = moonPhase(state.utc);
+  const k = SIN720[(Math.floor((p * 720) / 1024) + 180) % 720]; // cos of the phase angle
+  const waxing = p < 512;
+  for (let dy = -R; dy <= R; dy++) {
+    const hw = isqrt(R * R - dy * dy);
+    const xt = rdiv(hw * k, 1000);
+    const lo = waxing ? xt : -hw;
+    const hi = waxing ? hw : -xt;
+    for (let x = lo; x <= hi; x++) fb.set(cx + x, cy + dy, fg);
+  }
+  fb.circle(cx, cy, R, fg, false, false);
+  if (showPercent) {
+    const t = `${Math.floor((1000 - k) / 20)}%`;
+    drawText(
+      fb,
+      slot.x + ((slot.w - t.length * 8) >> 1),
+      slot.y + slot.h - 9,
+      t,
+      1,
+      fg,
+    );
+  }
 }
 
 function drawStack(ctx, slot, parts, scale, align) {
@@ -498,6 +709,15 @@ export function drawSlot(fb, slot, cfg, state, tick) {
     case "image":
       if (cfg.bitmap) centeredBitmap(ctx, slot, cfg.bitmap, align);
       break;
+    case "analog":
+      drawAnalog(ctx, slot, state, (cfg.style | 0) === 1);
+      break;
+    case "binary":
+      drawBinary(ctx, slot, state, (cfg.style | 0) === 1);
+      break;
+    case "moon":
+      drawMoon(ctx, slot, state, (cfg.style | 0) === 1);
+      break;
     case "anim":
       if (cfg.frames && cfg.frames.length) {
         const div = Math.max(1, cfg.div | 0);
@@ -540,7 +760,7 @@ export function animTiming(side) {
 
 // Renders one half. `sideName` ("central"|"peripheral") is passed on to widgets that behave
 // differently on the two halves.
-export function renderSide(sideName, side, state, tick) {
+export function renderSide(sideName, side, state, tick, location) {
   const fb = new FB();
   const { tickMs } = animTiming(side);
   for (const slot of computeSlots(side)) {
@@ -548,7 +768,13 @@ export function renderSide(sideName, side, state, tick) {
     const div = tickMs
       ? Math.max(1, Math.round((cfg.period || 1000) / tickMs))
       : 1;
-    drawSlot(fb, slot, { ...cfg, side: sideName, div }, state, tick);
+    drawSlot(
+      fb,
+      slot,
+      { ...cfg, side: sideName, div, loc: location },
+      state,
+      tick,
+    );
   }
   return fb;
 }
@@ -568,13 +794,49 @@ export const WIDGET_AVAILABILITY = {
   none: ["central", "peripheral"],
   battery: ["central", "peripheral"],
   connection: ["central", "peripheral"],
-  profile: ["central"],
+  profile: ["central", "peripheral"],
   layer: ["central", "peripheral"],
   wpm: ["central"],
   text: ["central", "peripheral"],
   image: ["central", "peripheral"],
   anim: ["central", "peripheral"],
+  clock: ["central", "peripheral"],
+  date: ["central", "peripheral"],
+  analog: ["central", "peripheral"],
+  wordclock: ["central", "peripheral"],
+  binary: ["central", "peripheral"],
+  moon: ["central", "peripheral"],
+  sun: ["central", "peripheral"],
 };
+
+// How often a design needs the screen redrawn because of the time: 0 never, 1 every minute,
+// 2 every second.
+export function timeMode(side) {
+  let mode = 0;
+  for (const slot of computeSlots(side)) {
+    const c = side.slots[slot.id];
+    if (!c) continue;
+    const style = c.style | 0;
+    if (
+      (c.type === "clock" && style === 2) ||
+      ((c.type === "analog" || c.type === "binary") && style === 1)
+    )
+      return 2;
+    if (
+      [
+        "clock",
+        "date",
+        "analog",
+        "wordclock",
+        "binary",
+        "moon",
+        "sun",
+      ].includes(c.type)
+    )
+      mode = 1;
+  }
+  return mode;
+}
 
 export function widgetAvailable(type, side, cfg) {
   if (!WIDGET_AVAILABILITY[type]?.includes(side)) return false;

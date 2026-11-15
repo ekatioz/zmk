@@ -56,6 +56,8 @@ static void cache_store(uint8_t id, const uint8_t *data, uint8_t len) {
 #define SETTLE_MS 6000
 
 static int64_t connected_at;
+static bool announced; /* connect callback called for this connection */
+static void (*connect_cb)(void);
 
 static void link_work_cb(struct k_work *work);
 static K_WORK_DELAYABLE_DEFINE(link_work, link_work_cb);
@@ -124,6 +126,13 @@ static void link_work_cb(struct k_work *work) {
         return;
     }
 
+    if (!announced) {
+        announced = true;
+        if (connect_cb != NULL) {
+            connect_cb();
+        }
+    }
+
     for (int id = 0; id < DD_LINK_IDS; id++) {
         uint8_t msg[1 + DD_LINK_MAX_PAYLOAD];
         size_t len = 0;
@@ -168,6 +177,7 @@ static void conn_disconnected(struct bt_conn *conn, uint8_t reason) {
         peer = NULL;
         peer_handle = 0;
         discovering = false;
+        announced = false;
         /* everything has to be sent again after the next connect */
         K_SPINLOCK(&cache_lock) {
             for (int id = 0; id < DD_LINK_IDS; id++) {
@@ -192,6 +202,8 @@ int dd_link_send(uint8_t id, const void *data, uint8_t len) {
 }
 
 void dd_link_set_handler(dd_link_handler_t handler) {}
+
+void dd_link_set_connect_cb(void (*cb)(void)) { connect_cb = cb; }
 
 #elif IS_ENABLED(CONFIG_ZMK_SPLIT_BLE)
 
@@ -243,6 +255,8 @@ BT_GATT_SERVICE_DEFINE(dd_link_svc, BT_GATT_PRIMARY_SERVICE(&svc_uuid),
 
 int dd_link_send(uint8_t id, const void *data, uint8_t len) { return 0; }
 
+void dd_link_set_connect_cb(void (*cb)(void)) {}
+
 void dd_link_set_handler(dd_link_handler_t h) {
     handler = h;
     k_work_submit_to_queue(zmk_display_work_q(), &deliver_work);
@@ -255,5 +269,7 @@ void dd_link_set_handler(dd_link_handler_t h) {
 int dd_link_send(uint8_t id, const void *data, uint8_t len) { return 0; }
 
 void dd_link_set_handler(dd_link_handler_t handler) {}
+
+void dd_link_set_connect_cb(void (*cb)(void)) {}
 
 #endif

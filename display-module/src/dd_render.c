@@ -5,6 +5,7 @@
  */
 
 #include "dd_render.h"
+#include "dd_timecalc.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -133,10 +134,10 @@ static void draw_bitmap(struct ctx *c, const struct dd_bitmap *bmp, int x, int y
 /* ------------------------------------------------------------------------- */
 /* Parts: a widget is a vertical stack of parts for a given scale. */
 
-enum part_type { P_TEXT, P_ICON, P_BATTERY, P_PROFILE, P_BARS };
+enum part_type { P_TEXT, P_ICON, P_BATTERY, P_PROFILE, P_BARS, P_ICONTEXT };
 
 #define TEXT_MAX 24
-#define MAX_PARTS 3
+#define MAX_PARTS 6
 
 struct part {
     uint8_t type;
@@ -171,6 +172,16 @@ static struct part text_part(const char *str, int s, int max_w) {
     }
     p.w = (int)strlen(p.text) * 8 * s;
     p.h = 8 * s;
+    return p;
+}
+
+/* an icon with a short text to its right */
+static struct part icontext_part(const struct dd_bitmap *icon, const char *str, int s, int max_w) {
+    struct part t = text_part(str, s, max_w);
+    struct part p = {.type = P_ICONTEXT, .s = s, .icon = icon};
+    memcpy(p.text, t.text, sizeof(p.text));
+    p.w = icon->w * s + s + t.w;
+    p.h = icon->h * s > t.h ? icon->h * s : t.h;
     return p;
 }
 
@@ -248,6 +259,10 @@ static void draw_part(struct ctx *c, const struct part *p, const struct dd_state
         }
         break;
     }
+    case P_ICONTEXT:
+        draw_bitmap(c, p->icon, x, y + ((p->h - p->icon->h * s) >> 1), s, false);
+        draw_text(c, x + p->icon->w * s + s, y + ((p->h - 8 * s) >> 1), p->text, s, c->fg);
+        break;
     case P_BARS:
         for (int i = 0; i < 4; i++) {
             int bh = (2 + 2 * i) * s;
@@ -350,6 +365,86 @@ static int build_parts(const struct dd_layout *layout, const struct dd_slot *sl,
         }
         break;
     }
+    case DD_KIND_CLOCK: {
+        struct dd_datetime dt;
+        dd_datetime_from(st->utc, st->utc_offset_min, &dt);
+        if (sl->style == 0) {
+            snprintf(buf, sizeof(buf), "%02d", dt.hour);
+            out[n++] = text_part(buf, s, sl->w);
+            snprintf(buf, sizeof(buf), "%02d", dt.minute);
+            out[n++] = text_part(buf, s, sl->w);
+        } else if (sl->style == 1) {
+            snprintf(buf, sizeof(buf), "%02d:%02d", dt.hour, dt.minute);
+            out[n++] = text_part(buf, s, sl->w);
+        } else {
+            snprintf(buf, sizeof(buf), "%02d:%02d:%02d", dt.hour, dt.minute, dt.second);
+            out[n++] = text_part(buf, s, sl->w);
+        }
+        break;
+    }
+    case DD_KIND_DATE: {
+        struct dd_datetime dt;
+        dd_datetime_from(st->utc, st->utc_offset_min, &dt);
+        const char *wd = dd_weekdays[dt.weekday - 1];
+        char kw[12];
+        snprintf(kw, sizeof(kw), "KW %02d", dt.week);
+        switch (sl->style) {
+        case 1:
+            snprintf(buf, sizeof(buf), "%s %02d.%02d", wd, dt.day, dt.month);
+            out[n++] = text_part(buf, s, sl->w);
+            break;
+        case 2:
+            snprintf(buf, sizeof(buf), "%02d.%02d.%02d", dt.day, dt.month, dt.year % 100);
+            out[n++] = text_part(buf, s, sl->w);
+            break;
+        case 3:
+            out[n++] = text_part(kw, s, sl->w);
+            break;
+        case 4:
+            out[n++] = text_part(wd, s, sl->w);
+            snprintf(buf, sizeof(buf), "%02d.%02d.", dt.day, dt.month);
+            out[n++] = text_part(buf, s, sl->w);
+            out[n++] = text_part(kw, s, sl->w);
+            break;
+        default:
+            snprintf(buf, sizeof(buf), "%02d.%02d.", dt.day, dt.month);
+            out[n++] = text_part(buf, s, sl->w);
+            break;
+        }
+        break;
+    }
+    case DD_KIND_WORDCLOCK: {
+        struct dd_datetime dt;
+        const char *lines[5];
+        dd_datetime_from(st->utc, st->utc_offset_min, &dt);
+        int count = dd_word_clock(dt.hour, dt.minute, sl->style == 1, lines);
+        for (int i = 0; i < count; i++) {
+            out[n++] = text_part(lines[i], s, sl->w);
+        }
+        break;
+    }
+    case DD_KIND_SUN: {
+        int rise, set;
+        int status =
+            dd_sun_times(st->utc, st->utc_offset_min, layout->lat_e4, layout->lon_e4, &rise, &set);
+        if (sl->style != 2) {
+            if (status == DD_SUN_OK) {
+                snprintf(buf, sizeof(buf), "%02d:%02d", rise / 60, rise % 60);
+            } else {
+                snprintf(buf, sizeof(buf), "--:--");
+            }
+            out[n++] = icontext_part(&dd_icon_sunrise, buf, s, sl->w);
+        }
+        if (sl->style != 1) {
+            if (status == DD_SUN_OK) {
+                snprintf(buf, sizeof(buf), "%02d:%02d", set / 60, set % 60);
+            } else {
+                snprintf(buf, sizeof(buf), "--:--");
+            }
+            out[n++] = icontext_part(&dd_icon_sunset, buf, s, sl->w);
+        }
+        break;
+    }
     case DD_KIND_PROFILE:
         out[n++] = profile_part(s);
         break;
@@ -433,6 +528,108 @@ static void draw_stack(struct ctx *c, const struct dd_layout *layout, const stru
     }
 }
 
+static void hand_end(int cx, int cy, int len, int idx, int *x, int *y) {
+    *x = cx + dd_rdiv(len * dd_sin720[idx], 1000);
+    *y = cy - dd_rdiv(len * dd_sin720[(idx + 180) % 720], 1000);
+}
+
+static void draw_analog(struct ctx *c, const struct dd_slot *sl, const struct dd_state *st,
+                        bool with_seconds) {
+    struct dd_datetime dt;
+    dd_datetime_from(st->utc, st->utc_offset_min, &dt);
+    int cx = sl->x + (sl->w >> 1);
+    int cy = sl->y + (sl->h >> 1);
+    int r = ((sl->w < sl->h ? sl->w : sl->h) >> 1) - 1;
+    if (r < 6) {
+        return;
+    }
+    circle(c, cx, cy, r, c->fg, false, false);
+    for (int i = 0; i < 12; i++) {
+        int len = i % 3 == 0 ? 4 : 2;
+        int ax, ay, bx, by;
+        hand_end(cx, cy, r - len, i * 60, &ax, &ay);
+        hand_end(cx, cy, r - 1, i * 60, &bx, &by);
+        line(c, ax, ay, bx, by, c->fg);
+    }
+    int ex, ey;
+    hand_end(cx, cy, (r * 5) / 10, (dt.hour % 12) * 60 + dt.minute, &ex, &ey);
+    line(c, cx, cy, ex, ey, c->fg);
+    line(c, cx + 1, cy, ex + 1, ey, c->fg);
+    hand_end(cx, cy, (r * 8) / 10, (dt.minute * 60 + dt.second) / 5, &ex, &ey);
+    line(c, cx, cy, ex, ey, c->fg);
+    if (with_seconds) {
+        hand_end(cx, cy, (r * 9) / 10, dt.second * 12, &ex, &ey);
+        line(c, cx, cy, ex, ey, c->fg);
+    }
+    circle(c, cx, cy, 2, c->fg, true, false);
+}
+
+static void draw_binary(struct ctx *c, const struct dd_slot *sl, const struct dd_state *st,
+                        bool with_seconds) {
+    struct dd_datetime dt;
+    dd_datetime_from(st->utc, st->utc_offset_min, &dt);
+    int digits[6] = {dt.hour / 10, dt.hour % 10, dt.minute / 10, dt.minute % 10, 0, 0};
+    int bits[6] = {2, 4, 3, 4, 3, 4};
+    int n = 4;
+    if (with_seconds) {
+        digits[4] = dt.second / 10;
+        digits[5] = dt.second % 10;
+        n = 6;
+    }
+    int cw = sl->w / n;
+    int ch = sl->h / 4;
+    int cs = cw < ch ? cw : ch;
+    if (cs < 3) {
+        return;
+    }
+    int x0 = sl->x + ((sl->w - cs * n) >> 1);
+    int y0 = sl->y + ((sl->h - cs * 4) >> 1);
+    int r = ((cs - 1) >> 1) - 1;
+    if (r < 1) {
+        r = 1;
+    }
+    for (int col = 0; col < n; col++) {
+        for (int row = 0; row < 4; row++) {
+            int bit = 3 - row;
+            if (bit >= bits[col]) {
+                continue;
+            }
+            circle(c, x0 + col * cs + (cs >> 1), y0 + row * cs + (cs >> 1), r, c->fg,
+                   ((digits[col] >> bit) & 1) == 1, false);
+        }
+    }
+}
+
+static void draw_moon(struct ctx *c, const struct dd_slot *sl, const struct dd_state *st,
+                      bool show_percent) {
+    int reserve = show_percent ? 10 : 0;
+    int avail_h = sl->h - reserve;
+    int r = ((sl->w < avail_h ? sl->w : avail_h) >> 1) - 1;
+    if (r < 3) {
+        return;
+    }
+    int cx = sl->x + (sl->w >> 1);
+    int cy = sl->y + (avail_h >> 1);
+    int p = dd_moon_phase(st->utc);
+    int k = dd_sin720[((p * 720) / 1024 + 180) % 720];
+    bool waxing = p < 512;
+    for (int dy = -r; dy <= r; dy++) {
+        int hw = dd_isqrt(r * r - dy * dy);
+        int xt = dd_rdiv(hw * k, 1000);
+        int lo = waxing ? xt : -hw;
+        int hi = waxing ? hw : -xt;
+        for (int x = lo; x <= hi; x++) {
+            set_px(c, cx + x, cy + dy, c->fg);
+        }
+    }
+    circle(c, cx, cy, r, c->fg, false, false);
+    if (show_percent) {
+        char t[8];
+        snprintf(t, sizeof(t), "%d%%", (1000 - k) / 20);
+        draw_text(c, sl->x + ((sl->w - (int)strlen(t) * 8) >> 1), sl->y + sl->h - 9, t, 1, c->fg);
+    }
+}
+
 static void draw_wpm_graph(struct ctx *c, const struct dd_slot *sl, const struct dd_state *st,
                            bool with_number) {
     int x = sl->x, y = sl->y, w = sl->w, h = sl->h;
@@ -502,6 +699,15 @@ static void draw_slot(struct ctx *c, const struct dd_layout *layout, const struc
         if (sl->bitmaps) {
             draw_centered_bitmap(c, sl, &sl->bitmaps[0]);
         }
+        break;
+    case DD_KIND_ANALOG:
+        draw_analog(c, sl, st, sl->style == 1);
+        break;
+    case DD_KIND_BINARY:
+        draw_binary(c, sl, st, sl->style == 1);
+        break;
+    case DD_KIND_MOON:
+        draw_moon(c, sl, st, sl->style == 1);
         break;
     case DD_KIND_ANIM:
         if (sl->bitmaps && sl->frame_count) {

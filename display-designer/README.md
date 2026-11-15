@@ -22,15 +22,37 @@ build as usual:
 | ---------- | ------ | ------------------------------------------------------------------------------------------------------- |
 | Batterie   | both   | battery of this half; on the left half also of the other half (fetched over the split link)             |
 | Verbindung | both   | USB / Bluetooth state (left), link to the left half (right); optionally signal bars / dBm (see below)   |
-| BT-Profil  | left   | the active Bluetooth profile 1–5 (filled = connected, dashed = bonded but disconnected, ring = pairing) |
+| BT-Profil  | both   | the active Bluetooth profile 1–5 (filled = connected, dashed = bonded but disconnected, ring = pairing) |
 | Layer      | both   | active layer name and/or number                                                                         |
 | WPM        | left   | typing speed as number and/or graph                                                                     |
 | Text, Bild | both   | static text, an imported picture (converted to 1 bit)                                                   |
 | Animation  | both   | a flip-book: built-in generators or your own pictures / GIF                                             |
+| Uhrzeit    | both   | digital: hours over minutes, HH:MM or HH:MM:SS                                                          |
+| Datum      | both   | DD.MM., weekday, year, ISO calendar week or all stacked                                                 |
+| Analog     | both   | analog clock, optionally with a second hand                                                             |
+| Wortuhr    | both   | the time in German words ("FUENF VOR HALB DREI")                                                        |
+| Binäruhr   | both   | BCD dots for hours, minutes and optionally seconds                                                      |
+| Mondphase  | both   | moon disc with the lit part, optionally the illumination in %                                           |
+| Sonne      | both   | sunrise and sunset of today for the location set in the designer                                        |
 
-Widgets that need keyboard state the right half does not have (profile, WPM, battery of the other half) are not offered there. The layer is sent to the right half over the link below.
+Widgets that need keyboard state the right half does not have (WPM, battery of the other half) are not offered there. Layer and profile are sent to the right half over the link below.
 Animations are plain frame sequences; the keyboard only plays them back (2 to 0.5 frames/s) and
 pauses them while idle (`CONFIG_DISPLAY_DESIGNER_ANIM_ONLY_WHEN_ACTIVE`).
+
+### Time
+
+The keyboard has no real-time clock. `dd_time.c` keeps the time as a base value plus the uptime since
+it was set. It starts at the time of the last `./build-lily58.sh` (good enough while developing, wrong
+after every restart) and is set by a message: the left half sends its time to the right half
+(`DD_LINK_MSG_TIME`) every time the halves connect. A helper program on the PC will set the real time
+later (`dd_time_set()`). The time zone is a plain offset in minutes, so daylight saving time needs a
+new sync.
+
+Date, week, moon phase and sun times are calculated on the keyboard (`dd_timecalc.c`, twin of
+`lib/timecalc.js`): the moon from the date (accurate to about a day), the sun with the sunrise
+equation (accurate to a minute or two) for the location in the designer. Designs with seconds
+(HH:MM:SS, second hand, binary seconds) redraw every second while the keyboard is in use, all others
+once a minute.
 
 ### Signal strength
 
@@ -51,7 +73,7 @@ keeps the latest message of every id and sends all of them again whenever the li
 
 Sending something new: `dd_link_send(ID, data, len)` on the left half, and handle the id in
 `link_message_cb()` in `dd_screen.c` on the right half. Ids are defined in `dd_link.h`; so far only
-`DD_LINK_MSG_LAYER` is used. Both halves need this firmware for the link to work.
+`DD_LINK_MSG_LAYER` and `DD_LINK_MSG_OUTPUT` (active profile) are used. Both halves need this firmware for the link to work.
 
 ## How it fits together
 

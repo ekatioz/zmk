@@ -9,6 +9,8 @@ import {
   animTiming,
   defaultState,
   widgetAvailable,
+  timeMode,
+  DEFAULT_LOCATION,
   KINDS,
 } from "./lib/render.js";
 import { genAll } from "./lib/codegen.js";
@@ -30,6 +32,13 @@ const TYPE_LABELS = {
   text: "Text",
   image: "Bild",
   anim: "Animation",
+  clock: "Uhrzeit (digital)",
+  date: "Datum / Kalenderwoche",
+  analog: "Analoge Uhr",
+  wordclock: "Wortuhr",
+  binary: "Binäruhr",
+  moon: "Mondphase",
+  sun: "Sonnenauf-/untergang",
 };
 const MAX_FRAMES = 32;
 const SCALE = 4;
@@ -39,7 +48,13 @@ const SCALE = 4;
 let design = defaultDesign();
 let sel = { side: "central", slot: "C" };
 let dirty = false;
-const sim = { ...defaultState(), wpmAuto: true, peerUnknown: false, wpmNow: 0 };
+const sim = {
+  ...defaultState(),
+  wpmAuto: true,
+  peerUnknown: false,
+  wpmNow: 0,
+  timeRunning: true,
+};
 const ticks = { central: 0, peripheral: 0 };
 const timers = {};
 // Source images of image/anim slots, kept in memory so threshold/dither can be re-applied.
@@ -179,7 +194,7 @@ function drawPreviews() {
   const ink = design.invert ? [0xdf, 0xe3, 0xd8] : [0x17, 0x19, 0x1c];
   const paper = design.invert ? [0x17, 0x19, 0x1c] : [0xdf, 0xe3, 0xd8];
   for (const { id } of SIDES) {
-    const fb = renderSide(id, sideCfg(id), st, ticks[id]);
+    const fb = renderSide(id, sideCfg(id), st, ticks[id], design.location);
     const img = new ImageData(W, H);
     for (let i = 0; i < W * H; i++) {
       const c = fb.px[i] ? ink : paper;
@@ -200,6 +215,13 @@ function drawPreviews() {
 }
 
 function restartTimers() {
+  clearInterval(timers.clock);
+  if (sim.timeRunning && SIDES.some(({ id }) => timeMode(sideCfg(id)) > 0)) {
+    timers.clock = setInterval(() => {
+      sim.utc++;
+      drawPreviews();
+    }, 1000);
+  }
   for (const { id } of SIDES) {
     clearInterval(timers[id]);
     const { tickMs } = animTiming(sideCfg(id));
@@ -223,6 +245,13 @@ function refresh({ structural = false } = {}) {
 }
 
 // --------------------------------------------------------------------------- panel widgets
+
+function styleRow(cfg, set, options) {
+  return row(
+    "Darstellung",
+    selectEl(options, cfg.style | 0, (v) => set({ style: Number(v) })),
+  );
+}
 
 function row(label, control, valueText) {
   return el(
@@ -281,7 +310,12 @@ function checkEl(id, checked, onchange, label) {
 
 function buildPanel() {
   const panel = $("#panel");
-  panel.replaceChildren(layoutSection(), slotSection(), simSection());
+  panel.replaceChildren(
+    layoutSection(),
+    slotSection(),
+    simSection(),
+    locationSection(),
+  );
 }
 
 function layoutSection() {
@@ -432,6 +466,72 @@ function slotSection() {
         );
       }
       break;
+    case "clock":
+      sec.append(
+        styleRow(cfg, set, [
+          [0, "Stunden über Minuten (groß)"],
+          [1, "HH:MM"],
+          [2, "HH:MM:SS"],
+        ]),
+      );
+      break;
+    case "date":
+      sec.append(
+        styleRow(cfg, set, [
+          [0, "TT.MM."],
+          [1, "Wochentag TT.MM"],
+          [2, "TT.MM.JJ"],
+          [3, "Kalenderwoche"],
+          [4, "Wochentag, Datum, Kalenderwoche"],
+        ]),
+      );
+      break;
+    case "analog":
+      sec.append(
+        styleRow(cfg, set, [
+          [0, "Stunden- und Minutenzeiger"],
+          [1, "mit Sekundenzeiger"],
+        ]),
+      );
+      break;
+    case "wordclock":
+      sec.append(
+        styleRow(cfg, set, [
+          [0, "ohne „ES IST“"],
+          [1, "mit „ES IST“"],
+        ]),
+      );
+      break;
+    case "binary":
+      sec.append(
+        styleRow(cfg, set, [
+          [0, "Stunden und Minuten"],
+          [1, "mit Sekunden"],
+        ]),
+      );
+      break;
+    case "moon":
+      sec.append(
+        styleRow(cfg, set, [
+          [0, "nur Mond"],
+          [1, "Mond + Beleuchtung in %"],
+        ]),
+      );
+      break;
+    case "sun":
+      sec.append(
+        styleRow(cfg, set, [
+          [0, "Aufgang und Untergang"],
+          [1, "nur Aufgang"],
+          [2, "nur Untergang"],
+        ]),
+        el(
+          "p",
+          { class: "hint" },
+          "Berechnet aus Datum und Standort (siehe „Standort“ unten). Braucht rund 50 px Breite, also einen ganzen Slot.",
+        ),
+      );
+      break;
     case "layer":
       sec.append(
         row(
@@ -494,9 +594,18 @@ function slotSection() {
   }
 
   if (
-    ["battery", "connection", "profile", "layer", "wpm", "text"].includes(
-      cfg.type,
-    )
+    [
+      "battery",
+      "connection",
+      "profile",
+      "layer",
+      "wpm",
+      "text",
+      "clock",
+      "date",
+      "wordclock",
+      "sun",
+    ].includes(cfg.type)
   ) {
     sec.append(
       row(
@@ -889,6 +998,39 @@ function animControls(sideId, slot, cfg) {
 
 // --------------------------------------------------------------------------- simulator
 
+function locationSection() {
+  const loc = design.location;
+  const upd = (patch) => {
+    design.location = { ...design.location, ...patch };
+    drawPreviews();
+    markDirty();
+  };
+  const num = (value, min, max, key) =>
+    el("input", {
+      type: "number",
+      min,
+      max,
+      step: 0.01,
+      value,
+      onchange: (e) => {
+        const v = Number(e.target.value);
+        if (Number.isFinite(v)) upd({ [key]: Math.max(min, Math.min(max, v)) });
+      },
+    });
+  return el(
+    "section",
+    {},
+    el("h3", {}, "Standort (Sonnenzeiten)"),
+    row("Breite (°N)", num(loc.lat, -66, 66, "lat")),
+    row("Länge (°O)", num(loc.lon, -180, 180, "lon")),
+    el(
+      "p",
+      { class: "hint" },
+      "Gilt für beide Hälften und liegt nur in layout.json und in der Firmware. Außerhalb von ±66° gibt es Polartage und -nächte; dort steht „--:--“.",
+    ),
+  );
+}
+
 function simSection() {
   const sec = el(
     "section",
@@ -985,6 +1127,66 @@ function simSection() {
     ),
     row("", rssiLink.input, rssiLink.val),
     row(
+      "Datum / Uhrzeit",
+      el("input", {
+        type: "datetime-local",
+        step: 1,
+        value: new Date((sim.utc + sim.utcOffset * 60) * 1000)
+          .toISOString()
+          .slice(0, 19),
+        onchange: (e) => {
+          const t = Date.parse(`${e.target.value}Z`);
+          if (!Number.isNaN(t)) upd({ utc: t / 1000 - sim.utcOffset * 60 });
+        },
+      }),
+    ),
+    row(
+      "UTC-Versatz (min)",
+      el("input", {
+        type: "number",
+        min: -720,
+        max: 840,
+        step: 15,
+        value: sim.utcOffset,
+        onchange: (e) => {
+          // keep the shown wall-clock time, change the zone
+          const local = sim.utc + sim.utcOffset * 60;
+          const off = Math.max(-720, Math.min(840, Number(e.target.value) | 0));
+          upd({ utcOffset: off, utc: local - off * 60 });
+          buildPanel();
+        },
+      }),
+    ),
+    row(
+      "",
+      el(
+        "div",
+        { class: "inline" },
+        checkEl(
+          "sim-clock-run",
+          sim.timeRunning,
+          (v) => {
+            sim.timeRunning = v;
+            restartTimers();
+          },
+          "Zeit läuft",
+        ),
+        el(
+          "button",
+          {
+            onclick: () => {
+              upd({
+                utc: Math.floor(Date.now() / 1000),
+                utcOffset: -new Date().getTimezoneOffset(),
+              });
+              buildPanel();
+            },
+          },
+          "Jetzt",
+        ),
+      ),
+    ),
+    row(
       "Layer-Nr.",
       el("input", {
         type: "number",
@@ -1046,6 +1248,9 @@ setInterval(() => {
 // --------------------------------------------------------------------------- load / save
 
 function validateDesign(d) {
+  if (d && typeof d === "object" && !d.location) {
+    d.location = { ...DEFAULT_LOCATION };
+  }
   if (!d || d.version !== 1 || !d.sides?.central || !d.sides?.peripheral) {
     throw new Error("Keine gültige layout.json (version 1)");
   }

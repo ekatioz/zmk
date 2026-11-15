@@ -1,5 +1,5 @@
 import { generate, GENERATORS } from "./anim.js";
-import { bandHeights, computeSlots } from "./render.js";
+import { bandHeights, computeSlots, DEFAULT_LOCATION } from "./render.js";
 
 export function emptySide() {
   return {
@@ -39,7 +39,12 @@ export function defaultDesign() {
   const c = computeSlots(peripheral).find((s) => s.id === "C");
   peripheral.slots.C = makeAnim("radar", c.w, c.h);
 
-  return { version: 1, invert: false, sides: { central, peripheral } };
+  return {
+    version: 1,
+    invert: false,
+    location: { ...DEFAULT_LOCATION },
+    sides: { central, peripheral },
+  };
 }
 
 export { bandHeights };

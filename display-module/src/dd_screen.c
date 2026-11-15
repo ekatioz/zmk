@@ -48,6 +48,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #include "dd_link.h"
 #include "dd_render.h"
+#include "dd_time.h"
 
 extern const struct dd_layout dd_layout;
 
@@ -74,6 +75,8 @@ static void redraw(void) {
     if (canvas == NULL) {
         return;
     }
+    state.utc = dd_time_utc();
+    state.utc_offset_min = dd_time_offset_min();
     dd_render(&dd_layout, &state, tick, framebuffer);
 
     lv_draw_buf_t *buf = lv_canvas_get_draw_buf(canvas);
@@ -138,6 +141,11 @@ static void output_update_cb(struct output_state s) {
     state.profile = s.profile;
     state.profile_connected = s.connected;
     state.profile_bonded = s.bonded;
+
+    /* the other half shows the profile as well */
+    const uint8_t msg[] = {s.transport, s.profile, s.connected, s.bonded};
+    dd_link_send(DD_LINK_MSG_OUTPUT, msg, sizeof(msg));
+
     redraw();
 }
 
@@ -263,6 +271,23 @@ static char layer_name[DD_LINK_MAX_PAYLOAD];
 /* Runs on the display work queue. */
 static void link_message_cb(uint8_t id, const uint8_t *data, uint8_t len) {
     switch (id) {
+    case DD_LINK_MSG_TIME:
+        if (len >= 6) {
+            dd_time_set((uint32_t)data[0] | (uint32_t)data[1] << 8 | (uint32_t)data[2] << 16 |
+                            (uint32_t)data[3] << 24,
+                        (int16_t)((uint16_t)data[4] | (uint16_t)data[5] << 8));
+            redraw();
+        }
+        break;
+    case DD_LINK_MSG_OUTPUT:
+        if (len >= 4) {
+            state.transport = data[0];
+            state.profile = data[1];
+            state.profile_connected = data[2];
+            state.profile_bonded = data[3];
+            redraw();
+        }
+        break;
     case DD_LINK_MSG_LAYER:
         if (len >= 1) {
             memcpy(layer_name, &data[1], len - 1);
@@ -364,6 +389,36 @@ static void rssi_work_cb(struct k_work *work) {
     k_work_reschedule_for_queue(zmk_display_work_q(), &rssi_work, K_MSEC(RSSI_POLL_MS));
 }
 
+/* --- Time ----------------------------------------------------------------- */
+
+static void time_work_cb(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(time_work, time_work_cb);
+
+/* Redraws on the next full second or minute, whatever the design needs. */
+static void time_work_schedule(void) {
+    uint32_t period_s = dd_layout.time_mode == 2 ? 1 : 60;
+    /* a few ms past the boundary so that the clock has really ticked over */
+    k_work_reschedule_for_queue(zmk_display_work_q(), &time_work,
+                                K_MSEC(dd_time_ms_until_next(period_s) + 5));
+}
+
+static void time_work_cb(struct k_work *work) {
+    redraw();
+    time_work_schedule();
+}
+
+#if DD_CENTRAL
+/* Tells the other half what time it is (runs on the system work queue). */
+static void send_time(void) {
+    const uint32_t utc = dd_time_utc();
+    const int16_t offset = dd_time_offset_min();
+    const uint8_t msg[6] = {
+        utc, utc >> 8, utc >> 16, utc >> 24, (uint16_t)offset & 0xff, (uint16_t)offset >> 8};
+
+    dd_link_send(DD_LINK_MSG_TIME, msg, sizeof(msg));
+}
+#endif
+
 /* --- Animation ----------------------------------------------------------- */
 
 static void anim_work_cb(struct k_work *work);
@@ -390,6 +445,14 @@ static int activity_cb(const zmk_event_t *eh) {
                                         K_MSEC(dd_layout.anim_tick_ms));
         } else {
             k_work_cancel_delayable(&anim_work);
+        }
+    }
+    if (dd_layout.time_mode != 0) {
+        if (active) {
+            /* show the right time at once, then keep it up to date */
+            k_work_reschedule_for_queue(zmk_display_work_q(), &time_work, K_NO_WAIT);
+        } else {
+            k_work_cancel_delayable(&time_work);
         }
     }
     if (dd_layout.rssi) {
@@ -419,6 +482,7 @@ lv_obj_t *zmk_display_status_screen() {
     dd_output_init();
     dd_layer_init();
     dd_wpm_init();
+    dd_link_set_connect_cb(send_time);
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_BLE_CENTRAL_BATTERY_LEVEL_FETCHING)
     dd_peer_battery_init();
 #endif
@@ -430,6 +494,9 @@ lv_obj_t *zmk_display_status_screen() {
     if (dd_layout.anim_tick_ms != 0) {
         k_work_reschedule_for_queue(zmk_display_work_q(), &anim_work,
                                     K_MSEC(dd_layout.anim_tick_ms));
+    }
+    if (dd_layout.time_mode != 0) {
+        time_work_schedule();
     }
     if (dd_layout.rssi) {
         k_work_reschedule_for_queue(zmk_display_work_q(), &rssi_work, K_MSEC(RSSI_POLL_MS));
