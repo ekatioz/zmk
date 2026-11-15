@@ -19,7 +19,7 @@ const struct dd_layout dd_layout = {
     .anim_tick_ms = 0,
     .rssi = true,
     .time_mode = 1,
-    .lat_e4 = 519739,
+    .lat_e4 = 519700,
     .lon_e4 = 76076,
     .slots = slots,
 };
